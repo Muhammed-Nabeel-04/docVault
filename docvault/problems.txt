@@ -1,0 +1,25 @@
+D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault>flutter run
+Launching lib\main.dart on sdk gphone64 x86 64 in debug mode...
+lib/screens/settings/settings_screen.dart:207:13: Error: The getter 'EncryptionService' isn't defined for the type '_SettingsScreenState'.
+ - '_SettingsScreenState' is from 'package:docvault/screens/settings/settings_screen.dart' ('lib/screens/settings/settings_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'EncryptionService'.
+      await EncryptionService.clearAllFiles();
+            ^^^^^^^^^^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildDebug'.
+> Process 'command 'E:\Flutter\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 25s
+Running Gradle task 'assembleDebug'...                             26.3s
+Error: Gradle task assembleDebug failed with exit code 1

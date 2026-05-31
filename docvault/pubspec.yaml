@@ -1,0 +1,59 @@
+name: docvault
+description: Offline personal document vault — secure, private, no cloud.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Database (no code generation needed)
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.2
+
+  # File picking + camera
+  file_picker: ^8.0.3
+  image_picker: ^1.1.2
+
+  # PDF viewer
+  syncfusion_flutter_pdfviewer: 27.2.5
+
+  # Sharing
+  share_plus: ^9.0.0
+
+  # Encryption
+  encrypt: ^5.0.3
+  flutter_secure_storage: 10.3.1
+
+  # Biometric / PIN lock
+  local_auth: ^2.3.0
+
+  # Notifications
+  flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
+
+  # Animations
+  flutter_animate: ^4.5.0
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Utilities
+  uuid: ^4.4.0
+  intl: ^0.19.0
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
