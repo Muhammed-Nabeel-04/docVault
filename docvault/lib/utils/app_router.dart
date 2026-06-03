@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
-import '../models/document.dart';
-import '../screens/home/home_screen.dart';
-import '../screens/add_document/add_document_screen.dart';
-import '../screens/view_document/view_document_screen.dart';
-import '../screens/search/search_screen.dart';
-import '../screens/settings/settings_screen.dart';
-import '../screens/lock/lock_screen.dart';
+import 'package:docvault/models/document.dart';
+import 'package:docvault/screens/home/home_screen.dart';
+import 'package:docvault/screens/add_document/add_document_screen.dart';
+import 'package:docvault/screens/view_document/view_document_screen.dart';
+import 'package:docvault/screens/search/search_screen.dart';
+import 'package:docvault/screens/settings/settings_screen.dart';
+import 'package:docvault/screens/lock/lock_screen.dart';
 
 class AppRouter {
+  static final navigatorKey = GlobalKey<NavigatorState>();
+  
   static const home = '/';
   static const addDocument = '/add-document';
   static const viewDocument = '/view-document';

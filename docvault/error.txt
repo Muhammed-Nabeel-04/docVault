@@ -1,0 +1,12 @@
+Restarted application in 409ms.
+Try again after fixing the above error(s).
+
+lib/main.dart:26:31: Error: Member not found: 'navigatorKey'.
+      navigatorKey: AppRouter.navigatorKey,
+                              ^^^^^^^^^^^^
+lib/main.dart:84:17: Error: Member not found: 'navigatorKey'.
+      AppRouter.navigatorKey.currentState?.pushReplacementNamed(AppRouter.lock);
+                ^^^^^^^^^^^^
+lib/main.dart:99:21: Error: Member not found: 'navigatorKey'.
+          AppRouter.navigatorKey.currentState?.pushReplacementNamed(AppRouter.lock);
+                    ^^^^^^^^^^^^

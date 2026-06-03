@@ -1,9 +1,10 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/providers.dart';
-import '../../services/auth_service.dart';
-import '../../services/database_service.dart';
-import '../../services/encryption_service.dart';
+import 'package:docvault/providers/providers.dart';
+import 'package:docvault/services/auth_service.dart';
+import 'package:docvault/services/database_service.dart';
+import 'package:docvault/services/encryption_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +16,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _hasPin = false;
   bool _bioAvailable = false;
+  bool _bioEnabled = false;
+  int _autoLockSeconds = 0;
 
   @override
   void initState() {
@@ -24,10 +27,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _load() async {
     final pin = await AuthService.hasPin();
-    final bio = await AuthService.isBiometricsAvailable();
+    final bioAvail = await AuthService.isBiometricsAvailable();
+    final bioEnabled = await AuthService.isBiometricEnabled();
+    final autoLock = await AuthService.getAutoLockDuration();
+
     setState(() {
       _hasPin = pin;
-      _bioAvailable = bio;
+      _bioAvailable = bioAvail;
+      _bioEnabled = bioEnabled;
+      _autoLockSeconds = autoLock;
     });
   }
 
@@ -49,12 +57,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (v) => v ? _setupPin() : _removePin(),
           ),
           if (_bioAvailable)
-            ListTile(
-              leading: const Icon(Icons.fingerprint_rounded),
+            SwitchListTile(
+              secondary: const Icon(Icons.fingerprint_rounded),
               title: const Text('Biometric Unlock'),
               subtitle: const Text('Use fingerprint or face ID'),
-              trailing: const Icon(Icons.chevron_right_rounded),
+              value: _bioEnabled,
+              onChanged: _hasPin
+                  ? (v) async {
+                      await AuthService.setBiometricEnabled(v);
+                      setState(() => _bioEnabled = v);
+                    }
+                  : null,
             ),
+          ListTile(
+            leading: const Icon(Icons.timer_rounded),
+            title: const Text('Automatically Lock'),
+            subtitle: Text(_getAutoLockLabel(_autoLockSeconds)),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _showAutoLockPicker,
+          ),
 
           const Divider(),
 
@@ -110,6 +131,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
 
+  String _getAutoLockLabel(int seconds) {
+    if (seconds == 0) return 'Immediately';
+    if (seconds < 60) return '$seconds seconds';
+    return '${seconds ~/ 60} minutes';
+  }
+
+  void _showAutoLockPicker() {
+    final options = {
+      0: 'Immediately',
+      60: '1 minute',
+      120: '2 minutes',
+      300: '5 minutes',
+      600: '10 minutes',
+    };
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Auto-lock Duration',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ...options.entries.map((e) => ListTile(
+                  title: Text(e.value),
+                  trailing: _autoLockSeconds == e.key
+                      ? Icon(Icons.check_circle_rounded,
+                          color: Theme.of(context).colorScheme.primary)
+                      : null,
+                  onTap: () async {
+                    await AuthService.setAutoLockDuration(e.key);
+                    setState(() => _autoLockSeconds = e.key);
+                    if (mounted) Navigator.pop(ctx);
+                  },
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _setupPin() async {
     final pin = await _pinDialog('Set PIN');
     if (pin != null && pin.length == 4) {
@@ -125,7 +192,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _removePin() async {
     await AuthService.removePin();
-    setState(() => _hasPin = false);
+    await AuthService.setBiometricEnabled(false);
+    setState(() {
+      _hasPin = false;
+      _bioEnabled = false;
+    });
   }
 
   Future<String?> _pinDialog(String title) async {
@@ -176,16 +247,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (confirm1 != true) return;
 
-    // Step 2: Verification (PIN or "DELETE" text)
+    // Step 2: Verification (Biometrics, PIN or "DELETE" text)
     bool verified = false;
     if (_hasPin) {
-      final pin = await _verifyPinDialog();
-      if (pin != null) {
-        verified = await AuthService.verifyPin(pin);
-        if (!verified && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Incorrect PIN')),
-          );
+      if (_bioEnabled) {
+        // Try biometrics first if enabled
+        verified = await AuthService.authenticateWithBiometrics();
+      }
+      
+      if (!verified) {
+        // Fallback to PIN if bio fails or is disabled
+        final pin = await _verifyPinDialog();
+        if (pin != null) {
+          verified = await AuthService.verifyPin(pin);
+          if (!verified && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Incorrect PIN')),
+            );
+          }
         }
       }
     } else {
@@ -193,6 +272,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     if (!verified) return;
+
+    // Step 3: CAPTCHA (Math Problem)
+    final captchaOk = await _captchaDialog();
+    if (captchaOk != true) return;
 
     // Final Action
     if (mounted) {
@@ -299,5 +382,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     return res ?? false;
+  }
+
+  Future<bool?> _captchaDialog() async {
+    final random = Random();
+    final a = random.nextInt(10) + 1;
+    final b = random.nextInt(10) + 1;
+    final sum = a + b;
+    final ctrl = TextEditingController();
+
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Security CAPTCHA'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Solve this simple math problem to confirm you are human:'),
+            const SizedBox(height: 20),
+            Center(
+              child: Text(
+                '$a + $b = ?',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(hintText: 'Answer'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (int.tryParse(ctrl.text) == sum) {
+                Navigator.pop(ctx, true);
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Incorrect answer. Please try again.')),
+                );
+              }
+            },
+            child: const Text('Verify & Delete All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -4,6 +4,9 @@ import 'package:local_auth/local_auth.dart';
 
 class AuthService {
   static const _pinKey = 'docvault_pin';
+  static const _bioEnabledKey = 'docvault_use_biometrics';
+  static const _autoLockKey = 'docvault_auto_lock_duration';
+
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
       encryptedSharedPreferences: false,
@@ -30,6 +33,17 @@ class AuthService {
     await _storage.delete(key: _pinKey);
   }
 
+  // ── Biometrics ──────────────────────────────────────────────────────────
+
+  static Future<bool> isBiometricEnabled() async {
+    final val = await _storage.read(key: _bioEnabledKey);
+    return val == 'true';
+  }
+
+  static Future<void> setBiometricEnabled(bool enabled) async {
+    await _storage.write(key: _bioEnabledKey, value: enabled.toString());
+  }
+
   static Future<bool> isBiometricsAvailable() async {
     try {
       final canCheck = await _auth.canCheckBiometrics;
@@ -49,5 +63,16 @@ class AuthService {
     } on PlatformException {
       return false;
     }
+  }
+
+  // ── Auto Lock ───────────────────────────────────────────────────────────
+
+  static Future<int> getAutoLockDuration() async {
+    final val = await _storage.read(key: _autoLockKey);
+    return int.tryParse(val ?? '0') ?? 0;
+  }
+
+  static Future<void> setAutoLockDuration(int seconds) async {
+    await _storage.write(key: _autoLockKey, value: seconds.toString());
   }
 }

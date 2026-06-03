@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/providers.dart';
-import '../../services/auth_service.dart';
+import 'package:docvault/providers/providers.dart';
+import 'package:docvault/services/auth_service.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key});
@@ -22,9 +22,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   }
 
   Future<void> _init() async {
-    final bio = await AuthService.isBiometricsAvailable();
-    setState(() => _bioAvailable = bio);
-    if (bio) _tryBio();
+    final available = await AuthService.isBiometricsAvailable();
+    final enabled = await AuthService.isBiometricEnabled();
+    setState(() => _bioAvailable = available && enabled);
+    if (available && enabled) _tryBio();
   }
 
   Future<void> _tryBio() async {
@@ -34,7 +35,11 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   void _unlock() {
     ref.read(isUnlockedProvider.notifier).state = true;
-    Navigator.pushReplacementNamed(context, '/');
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.pushReplacementNamed(context, '/');
+    }
   }
 
   void _onKey(String key) {
@@ -131,16 +136,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
               const SizedBox(height: 24),
 
               // Keypad
-              ..._buildKeypad(scheme),
+              _buildKeypad(scheme),
 
               const Spacer(),
-
-              if (_bioAvailable)
-                TextButton.icon(
-                  onPressed: _tryBio,
-                  icon: const Icon(Icons.fingerprint_rounded),
-                  label: const Text('Use Biometrics'),
-                ),
               const SizedBox(height: 20),
             ],
           ),
@@ -149,50 +147,64 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     );
   }
 
-  List<Widget> _buildKeypad(ColorScheme scheme) {
-    final rows = [
+  Widget _buildKeypad(ColorScheme scheme) {
+    final keys = [
       ['1', '2', '3'],
       ['4', '5', '6'],
       ['7', '8', '9'],
-      ['', '0', '⌫'],
+      ['BIO', '0', '⌫'],
     ];
 
-    return rows.map((row) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: row.map((key) {
-            if (key.isEmpty) {
-              return const SizedBox(width: 80);
-            }
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SizedBox(
-                width: 72,
-                height: 72,
-                child: TextButton(
-                  style: TextButton.styleFrom(
-                    shape: const CircleBorder(),
-                    backgroundColor:
-                        scheme.surfaceVariant.withOpacity(0.5),
-                  ),
-                  onPressed: () =>
-                      key == '⌫' ? _onDelete() : _onKey(key),
-                  child: Text(
-                    key,
-                    style: TextStyle(
-                      fontSize: key == '⌫' ? 18 : 24,
-                      color: scheme.onSurface,
-                      fontWeight: FontWeight.w500,
+    return Column(
+      children: keys.map((row) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: row.map((key) {
+              if (key == 'BIO' && !_bioAvailable) {
+                return const SizedBox(width: 80);
+              }
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(
+                  width: 72,
+                  height: 72,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      shape: const CircleBorder(),
+                      backgroundColor: key == 'BIO' || key == '⌫'
+                          ? Colors.transparent
+                          : scheme.surfaceVariant.withOpacity(0.5),
                     ),
+                    onPressed: () {
+                      if (key == 'BIO') {
+                        _tryBio();
+                      } else if (key == '⌫') {
+                        _onDelete();
+                      } else {
+                        _onKey(key);
+                      }
+                    },
+                    child: key == 'BIO'
+                        ? Icon(Icons.fingerprint_rounded,
+                            size: 32, color: scheme.primary)
+                        : Text(
+                            key,
+                            style: TextStyle(
+                              fontSize: key == '⌫' ? 22 : 28,
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                   ),
                 ),
-              ),
-            );
-          }).toList(),
-        ),
-      );
-    }).toList();
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
+    );
   }
 }

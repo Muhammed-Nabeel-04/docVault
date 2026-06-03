@@ -29,6 +29,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   DateTime? _issueDate;
   DateTime? _expiryDate;
   File? _pickedFile;
+  File? _previewFile;
   String? _fileExtension;
   bool _isSaving = false;
 
@@ -45,6 +46,22 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       _category = doc.category;
       _issueDate = doc.issueDate;
       _expiryDate = doc.expiryDate;
+      _loadPreview();
+    }
+  }
+
+  Future<void> _loadPreview() async {
+    try {
+      final doc = widget.existingDocument!;
+      final file = await EncryptionService.decryptToTemp(
+          doc.encryptedFilePath, doc.fileExtension);
+      if (mounted) {
+        setState(() {
+          _previewFile = file;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading preview: $e');
     }
   }
 
@@ -53,6 +70,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     _nameCtrl.dispose();
     _noteCtrl.dispose();
     _tagsCtrl.dispose();
+    _previewFile?.delete().catchError((_) {});
     super.dispose();
   }
 
@@ -70,12 +88,10 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             // ── File picker ──────────────────────────────────────────
-            if (!_isEditing) ...[
-              _label('Document File *'),
-              const SizedBox(height: 8),
-              _filePicker(scheme),
-              const SizedBox(height: 20),
-            ],
+            _label(_isEditing ? 'Replace Document File (optional)' : 'Document File *'),
+            const SizedBox(height: 8),
+            _filePicker(scheme),
+            const SizedBox(height: 20),
 
             // ── Name ─────────────────────────────────────────────────
             _label('Document Name *'),
@@ -193,45 +209,90 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       );
 
   Widget _filePicker(ColorScheme scheme) {
+    final showNewFile = _pickedFile != null;
+    final showOldFile = !showNewFile && _isEditing && _previewFile != null;
+    final isImage = showNewFile
+        ? ['jpg', 'jpeg', 'png'].contains(_fileExtension)
+        : showOldFile &&
+            ['jpg', 'jpeg', 'png']
+                .contains(widget.existingDocument!.fileExtension.toLowerCase());
+
     return GestureDetector(
       onTap: _showPickerSheet,
       child: Container(
-        height: 100,
+        height: 160,
+        width: double.infinity,
         decoration: BoxDecoration(
           border: Border.all(
-            color: _pickedFile != null
+            color: (showNewFile || showOldFile)
                 ? scheme.primary
                 : scheme.outlineVariant,
-            width: _pickedFile != null ? 1.5 : 1,
+            width: (showNewFile || showOldFile) ? 1.5 : 1,
           ),
           borderRadius: BorderRadius.circular(12),
-          color: _pickedFile != null
-              ? scheme.primaryContainer.withOpacity(0.2)
+          color: (showNewFile || showOldFile)
+              ? scheme.primaryContainer.withOpacity(0.1)
               : scheme.surfaceVariant.withOpacity(0.3),
         ),
-        child: _pickedFile != null
-            ? Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle_rounded,
-                      color: scheme.primary),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _pickedFile!.path.split('\\').last.split('/').last,
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (showNewFile || showOldFile) ...[
+              if (isImage)
+                Image.file(
+                  showNewFile ? _pickedFile! : _previewFile!,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                )
+              else
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.insert_drive_file_rounded,
+                        size: 48, color: scheme.primary),
+                    const SizedBox(height: 8),
+                    Text(
+                      showNewFile
+                          ? _pickedFile!.path.split('/').last
+                          : widget.existingDocument!.name,
                       style: TextStyle(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w500),
-                      overflow: TextOverflow.ellipsis,
+                          color: scheme.primary, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              // Overlay with change button
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black26,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.edit_rounded,
+                              color: Colors.white, size: 16),
+                          SizedBox(width: 8),
+                          Text('Change File',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold)),
+                        ],
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(Icons.close, color: scheme.error, size: 20),
-                    onPressed: () => setState(() => _pickedFile = null),
-                  ),
-                ],
-              )
-            : Column(
+                ),
+              ),
+            ] else
+              Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.upload_file_rounded,
@@ -242,6 +303,8 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
                           color: scheme.onSurfaceVariant, fontSize: 13)),
                 ],
               ),
+          ],
+        ),
       ),
     );
   }
@@ -420,12 +483,28 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           .toList();
 
       if (_isEditing) {
+        String encPath = widget.existingDocument!.encryptedFilePath;
+        String ext = widget.existingDocument!.fileExtension;
+        int size = widget.existingDocument!.fileSizeBytes;
+
+        if (_pickedFile != null) {
+          // Encrypt new file
+          final newPath = await EncryptionService.encryptFile(_pickedFile!);
+          // Delete old file
+          await EncryptionService.deleteEncryptedFile(encPath);
+          // Update metadata
+          encPath = newPath;
+          ext = _fileExtension ?? 'pdf';
+          size = await _pickedFile!.length();
+        }
+
         final updated = widget.existingDocument!.copyWith(
           name: _nameCtrl.text.trim(),
-          note: _noteCtrl.text.trim().isEmpty
-              ? null
-              : _noteCtrl.text.trim(),
+          note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
           category: _category,
+          encryptedFilePath: encPath,
+          fileExtension: ext,
+          fileSizeBytes: size,
           tags: tags,
           issueDate: _issueDate,
           expiryDate: _expiryDate,
