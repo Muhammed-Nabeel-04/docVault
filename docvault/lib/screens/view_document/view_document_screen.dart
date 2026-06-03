@@ -46,7 +46,9 @@ class _ViewDocumentScreenState extends State<ViewDocumentScreen> {
 
   @override
   void dispose() {
-    _tempFile?.delete().catchError((_) {});
+    if (_tempFile != null) {
+      _tempFile!.delete().catchError((_) => _tempFile!);
+    }
     super.dispose();
   }
 

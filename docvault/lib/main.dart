@@ -13,6 +13,7 @@ void main() async {
   await DatabaseService.init();
   await EncryptionService.init();
   await NotificationService.init();
+  await NotificationService.requestPermissions();
   runApp(const ProviderScope(child: DocVaultApp()));
 }
 

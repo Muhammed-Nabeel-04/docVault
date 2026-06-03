@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/document.dart';
 import '../services/database_service.dart';
+import '../services/encryption_service.dart';
 
 // ── Database service ──────────────────────────────────────────────────────────
 
@@ -70,8 +71,12 @@ class DocumentsNotifier
   }
 
   Future<void> deleteDocument(int id) async {
-    await _db.deleteDocument(id);
-    await load();
+    final doc = await _db.getDocumentById(id);
+    if (doc != null) {
+      await EncryptionService.deleteEncryptedFile(doc.encryptedFilePath);
+      await _db.deleteDocument(id);
+      await load();
+    }
   }
 }
 

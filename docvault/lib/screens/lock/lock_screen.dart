@@ -72,75 +72,82 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Column(
-            children: [
-              const Spacer(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        // Do nothing, preventing back navigation
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Column(
+              children: [
+                const Spacer(),
 
-              // Icon
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  shape: BoxShape.circle,
+                // Icon
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.lock_rounded,
+                      size: 32, color: scheme.primary),
                 ),
-                child: Icon(Icons.lock_rounded,
-                    size: 32, color: scheme.primary),
-              ),
-              const SizedBox(height: 20),
-              const Text('DocVault',
-                  style: TextStyle(
-                      fontSize: 26, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text('Enter your PIN to continue',
-                  style:
-                      TextStyle(color: scheme.onSurfaceVariant)),
-              const SizedBox(height: 36),
+                const SizedBox(height: 20),
+                const Text('DocVault',
+                    style: TextStyle(
+                        fontSize: 26, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text('Enter your PIN to continue',
+                    style:
+                        TextStyle(color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 36),
 
-              // PIN dots
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (i) {
-                  final filled = i < _pin.length;
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color:
-                          filled ? scheme.primary : Colors.transparent,
-                      border: Border.all(
-                        color: filled ? scheme.primary : scheme.outline,
-                        width: 2,
+                // PIN dots
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(4, (i) {
+                    final filled = i < _pin.length;
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color:
+                            filled ? scheme.primary : Colors.transparent,
+                        border: Border.all(
+                          color: filled ? scheme.primary : scheme.outline,
+                          width: 2,
+                        ),
                       ),
-                    ),
-                  );
-                }),
-              ),
+                    );
+                  }),
+                ),
 
-              // Error text
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 20,
-                child: _error != null
-                    ? Text(_error!,
-                        style: TextStyle(
-                            color: scheme.error, fontSize: 13))
-                    : null,
-              ),
-              const SizedBox(height: 24),
+                // Error text
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 20,
+                  child: _error != null
+                      ? Text(_error!,
+                          style: TextStyle(
+                              color: scheme.error, fontSize: 13))
+                      : null,
+                ),
+                const SizedBox(height: 24),
 
-              // Keypad
-              _buildKeypad(scheme),
+                // Keypad
+                _buildKeypad(scheme),
 
-              const Spacer(),
-              const SizedBox(height: 20),
-            ],
+                const Spacer(),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),

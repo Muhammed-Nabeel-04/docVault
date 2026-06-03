@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docvault/providers/providers.dart';
 import 'package:docvault/services/auth_service.dart';
-import 'package:docvault/services/database_service.dart';
 import 'package:docvault/services/encryption_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {

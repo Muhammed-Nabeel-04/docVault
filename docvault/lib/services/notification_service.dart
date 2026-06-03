@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/document.dart';
@@ -13,10 +15,40 @@ class NotificationService {
     await _plugin.initialize(settings);
   }
 
+  static Future<bool> requestPermissions() async {
+    if (Platform.isAndroid) {
+      // Notification permission (Android 13+)
+      final status = await Permission.notification.request();
+      if (status.isDenied) return false;
+
+      // Exact alarm permission check (Android 12+)
+      // Note: SCHEDULE_EXACT_ALARM is granted by default on most apps, 
+      // but can be revoked by user.
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        // We could request it, but it takes user to settings.
+        // For now, we'll just check if we can proceed.
+      }
+    }
+    return true;
+  }
+
   static Future<void> scheduleExpiryReminder(Document doc) async {
     if (doc.expiryDate == null || doc.id == null) return;
     final notifyAt = doc.expiryDate!.subtract(const Duration(days: 30));
     if (notifyAt.isBefore(DateTime.now())) return;
+
+    // Check if we can use exact alarms
+    AndroidScheduleMode scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
+    if (Platform.isAndroid) {
+      final canScheduleExact = await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.canScheduleExactNotifications();
+      
+      if (canScheduleExact == false) {
+        scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+      }
+    }
 
     await _plugin.zonedSchedule(
       doc.id!,
@@ -32,7 +64,7 @@ class NotificationService {
           priority: Priority.high,
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: scheduleMode,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );

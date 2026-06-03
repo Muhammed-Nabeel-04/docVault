@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../models/document.dart';
 import '../../providers/providers.dart';
-import '../../services/database_service.dart';
 import '../../services/encryption_service.dart';
 import '../../services/notification_service.dart';
 
@@ -70,7 +69,9 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     _nameCtrl.dispose();
     _noteCtrl.dispose();
     _tagsCtrl.dispose();
-    _previewFile?.delete().catchError((_) {});
+    if (_previewFile != null) {
+      _previewFile!.delete().catchError((_) => _previewFile!);
+    }
     super.dispose();
   }
 
@@ -510,6 +511,10 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           expiryDate: _expiryDate,
           updatedAt: DateTime.now(),
         );
+        
+        // Cancel old reminder before potentially scheduling new one
+        await NotificationService.cancelReminder(updated.id!);
+        
         await db.updateDocument(updated);
         if (_expiryDate != null) {
           await NotificationService.scheduleExpiryReminder(updated);

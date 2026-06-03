@@ -1,12 +1,9 @@
-Restarted application in 409ms.
-Try again after fixing the above error(s).
+Remaining Findings
+[P1] Existing encrypted documents may no longer open
+encryption_service.dart (line 70) now assumes every encrypted file starts with a 12-byte GCM nonce, then decrypts with GCM at line 76 (line 76). Any documents saved with the previous CBC format probably won’t decrypt. If you already had user data, add legacy-read/migration support before shipping this change.
 
-lib/main.dart:26:31: Error: Member not found: 'navigatorKey'.
-      navigatorKey: AppRouter.navigatorKey,
-                              ^^^^^^^^^^^^
-lib/main.dart:84:17: Error: Member not found: 'navigatorKey'.
-      AppRouter.navigatorKey.currentState?.pushReplacementNamed(AppRouter.lock);
-                ^^^^^^^^^^^^
-lib/main.dart:99:21: Error: Member not found: 'navigatorKey'.
-          AppRouter.navigatorKey.currentState?.pushReplacementNamed(AppRouter.lock);
-                    ^^^^^^^^^^^^
+[P2] Android notification permission is declared but not requested
+The manifest now includes POST_NOTIFICATIONS at AndroidManifest.xml (line 6), but notification_service.dart (line 21) schedules directly without runtime permission flow. On Android 13+, reminders can still silently fail until notification permission is requested/granted.
+
+[P2] Exact alarm permission still needs runtime/state handling
+You added USE_EXACT_ALARM/SCHEDULE_EXACT_ALARM in AndroidManifest.xml (line 4), while scheduling uses exactAllowWhileIdle at notification_service.dart (line 35). Depending on target SDK/device policy, the app should check/request exact alarm capability or gracefully fall back to inexact scheduling.
