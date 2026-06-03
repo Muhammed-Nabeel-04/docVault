@@ -1,44 +1,53 @@
-enum DocumentCategory {
-  identity,
-  vehicle,
-  medical,
-  education,
-  finance,
-  property,
-  other,
-}
+class DocumentFile {
+  final int? id;
+  final int? documentId;
+  final String encryptedFilePath;
+  final String fileExtension;
+  final int fileSizeBytes;
 
-extension DocumentCategoryX on DocumentCategory {
-  String get label {
-    switch (this) {
-      case DocumentCategory.identity:  return 'Identity';
-      case DocumentCategory.vehicle:   return 'Vehicle';
-      case DocumentCategory.medical:   return 'Medical';
-      case DocumentCategory.education: return 'Education';
-      case DocumentCategory.finance:   return 'Finance';
-      case DocumentCategory.property:  return 'Property';
-      case DocumentCategory.other:     return 'Other';
-    }
+  DocumentFile({
+    this.id,
+    this.documentId,
+    required this.encryptedFilePath,
+    required this.fileExtension,
+    required this.fileSizeBytes,
+  });
+
+  Map<String, dynamic> toMap() {
+    final map = <String, dynamic>{
+      'document_id': documentId,
+      'encryptedFilePath': encryptedFilePath,
+      'fileExtension': fileExtension,
+      'fileSizeBytes': fileSizeBytes,
+    };
+    if (id != null) map['id'] = id;
+    return map;
   }
 
-  String get icon {
-    switch (this) {
-      case DocumentCategory.identity:  return '🪪';
-      case DocumentCategory.vehicle:   return '🚗';
-      case DocumentCategory.medical:   return '🏥';
-      case DocumentCategory.education: return '🎓';
-      case DocumentCategory.finance:   return '💳';
-      case DocumentCategory.property:  return '🏠';
-      case DocumentCategory.other:     return '📄';
-    }
+  factory DocumentFile.fromMap(Map<String, dynamic> map) {
+    return DocumentFile(
+      id: map['id'] as int?,
+      documentId: map['document_id'] as int?,
+      encryptedFilePath: map['encryptedFilePath'] as String,
+      fileExtension: map['fileExtension'] as String,
+      fileSizeBytes: map['fileSizeBytes'] as int,
+    );
   }
 
-  int get dbValue {
-    return DocumentCategory.values.indexOf(this);
-  }
-
-  static DocumentCategory fromDb(int value) {
-    return DocumentCategory.values[value];
+  DocumentFile copyWith({
+    int? id,
+    int? documentId,
+    String? encryptedFilePath,
+    String? fileExtension,
+    int? fileSizeBytes,
+  }) {
+    return DocumentFile(
+      id: id ?? this.id,
+      documentId: documentId ?? this.documentId,
+      encryptedFilePath: encryptedFilePath ?? this.encryptedFilePath,
+      fileExtension: fileExtension ?? this.fileExtension,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+    );
   }
 }
 
@@ -46,10 +55,8 @@ class Document {
   final int? id;
   final String name;
   final String? note;
-  final DocumentCategory category;
-  final String encryptedFilePath;
-  final String fileExtension;
-  final int fileSizeBytes;
+  final int categoryId;
+  final List<DocumentFile> files;
   final DateTime? issueDate;
   final DateTime? expiryDate;
   final DateTime createdAt;
@@ -61,10 +68,8 @@ class Document {
     this.id,
     required this.name,
     this.note,
-    required this.category,
-    required this.encryptedFilePath,
-    required this.fileExtension,
-    required this.fileSizeBytes,
+    required this.categoryId,
+    this.files = const [],
     this.issueDate,
     this.expiryDate,
     required this.createdAt,
@@ -77,10 +82,8 @@ class Document {
     int? id,
     String? name,
     String? note,
-    DocumentCategory? category,
-    String? encryptedFilePath,
-    String? fileExtension,
-    int? fileSizeBytes,
+    int? categoryId,
+    List<DocumentFile>? files,
     DateTime? issueDate,
     DateTime? expiryDate,
     DateTime? createdAt,
@@ -92,10 +95,8 @@ class Document {
       id: id ?? this.id,
       name: name ?? this.name,
       note: note ?? this.note,
-      category: category ?? this.category,
-      encryptedFilePath: encryptedFilePath ?? this.encryptedFilePath,
-      fileExtension: fileExtension ?? this.fileExtension,
-      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      categoryId: categoryId ?? this.categoryId,
+      files: files ?? this.files,
       issueDate: issueDate ?? this.issueDate,
       expiryDate: expiryDate ?? this.expiryDate,
       createdAt: createdAt ?? this.createdAt,
@@ -106,14 +107,10 @@ class Document {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
+    final map = <String, dynamic>{
       'name': name,
       'note': note,
-      'category': category.dbValue,
-      'encryptedFilePath': encryptedFilePath,
-      'fileExtension': fileExtension,
-      'fileSizeBytes': fileSizeBytes,
+      'category': categoryId,
       'issueDate': issueDate?.millisecondsSinceEpoch,
       'expiryDate': expiryDate?.millisecondsSinceEpoch,
       'createdAt': createdAt.millisecondsSinceEpoch,
@@ -121,17 +118,17 @@ class Document {
       'isStarred': isStarred ? 1 : 0,
       'tags': tags.join(','),
     };
+    if (id != null) map['id'] = id;
+    return map;
   }
 
-  factory Document.fromMap(Map<String, dynamic> map) {
+  factory Document.fromMap(Map<String, dynamic> map, {List<DocumentFile> files = const []}) {
     return Document(
       id: map['id'] as int?,
       name: map['name'] as String,
       note: map['note'] as String?,
-      category: DocumentCategoryX.fromDb(map['category'] as int),
-      encryptedFilePath: map['encryptedFilePath'] as String,
-      fileExtension: map['fileExtension'] as String,
-      fileSizeBytes: map['fileSizeBytes'] as int,
+      categoryId: map['category'] as int,
+      files: files,
       issueDate: map['issueDate'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['issueDate'] as int)
           : null,

@@ -10,7 +10,7 @@ class NotificationService {
 
   static Future<void> init() async {
     tz.initializeTimeZones();
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@mipmap/launcher_icon');
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(settings);
   }
@@ -22,17 +22,22 @@ class NotificationService {
       if (status.isDenied) return false;
 
       // Exact alarm permission check (Android 12+)
-      // Note: SCHEDULE_EXACT_ALARM is granted by default on most apps, 
-      // but can be revoked by user.
       if (await Permission.scheduleExactAlarm.isDenied) {
         // We could request it, but it takes user to settings.
-        // For now, we'll just check if we can proceed.
       }
     }
     return true;
   }
 
+  static Future<bool> hasPermission() async {
+    if (Platform.isAndroid) {
+      return await Permission.notification.isGranted;
+    }
+    return true;
+  }
+
   static Future<void> scheduleExpiryReminder(Document doc) async {
+    if (!await hasPermission()) return;
     if (doc.expiryDate == null || doc.id == null) return;
     final notifyAt = doc.expiryDate!.subtract(const Duration(days: 30));
     if (notifyAt.isBefore(DateTime.now())) return;

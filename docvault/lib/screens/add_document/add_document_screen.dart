@@ -5,9 +5,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../models/document.dart';
+import '../../models/category.dart';
 import '../../providers/providers.dart';
 import '../../services/encryption_service.dart';
 import '../../services/notification_service.dart';
+import '../../widgets/processing_overlay.dart';
 
 class AddDocumentScreen extends ConsumerStatefulWidget {
   final Document? existingDocument;
@@ -24,14 +26,17 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   final _noteCtrl = TextEditingController();
   final _tagsCtrl = TextEditingController();
 
-  DocumentCategory _category = DocumentCategory.identity;
+  int? _categoryId;
   DateTime? _issueDate;
   DateTime? _expiryDate;
-  File? _pickedFile;
-  File? _previewFile;
-  String? _fileExtension;
-  bool _isSaving = false;
+  
+  // Multi-file state
+  List<DocumentFile> _existingFiles = [];
+  final List<File> _newFiles = [];
+  final List<DocumentFile> _filesToDelete = [];
+  final Map<String, File> _decryptedPreviews = {}; // Map of encryptedPath -> decryptedTempFile
 
+  bool _isSaving = false;
   bool get _isEditing => widget.existingDocument != null;
 
   @override
@@ -42,26 +47,43 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       _nameCtrl.text = doc.name;
       _noteCtrl.text = doc.note ?? '';
       _tagsCtrl.text = doc.tags.join(', ');
-      _category = doc.category;
+      _categoryId = doc.categoryId;
       _issueDate = doc.issueDate;
       _expiryDate = doc.expiryDate;
-      _loadPreview();
+      _existingFiles = List.from(doc.files);
+      _loadPreviews();
     }
   }
 
-  Future<void> _loadPreview() async {
-    try {
-      final doc = widget.existingDocument!;
-      final file = await EncryptionService.decryptToTemp(
-          doc.encryptedFilePath, doc.fileExtension);
-      if (mounted) {
-        setState(() {
-          _previewFile = file;
-        });
+  Future<void> _loadPreviews() async {
+    if (_existingFiles.isEmpty) return;
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        ProcessingOverlay.show(context, message: 'Decrypting previews...', isDecryption: true);
+
+        final startTime = DateTime.now();
+        for (var file in _existingFiles) {
+          final decrypted = await EncryptionService.decryptToTemp(
+            file.encryptedFilePath, 
+            file.fileExtension,
+          );
+          _decryptedPreviews[file.encryptedFilePath] = decrypted;
+        }
+        
+        final elapsed = DateTime.now().difference(startTime);
+        if (elapsed < const Duration(seconds: 1)) {
+          await Future.delayed(const Duration(seconds: 1) - elapsed);
+        }
+        
+        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+        if (mounted) setState(() {});
+      } catch (e) {
+        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+        debugPrint('Error loading previews: $e');
       }
-    } catch (e) {
-      debugPrint('Error loading preview: $e');
-    }
+    });
   }
 
   @override
@@ -69,8 +91,9 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     _nameCtrl.dispose();
     _noteCtrl.dispose();
     _tagsCtrl.dispose();
-    if (_previewFile != null) {
-      _previewFile!.delete().catchError((_) => _previewFile!);
+    // Clean up temporary preview files
+    for (var f in _decryptedPreviews.values) {
+      f.delete().catchError((_) => f);
     }
     super.dispose();
   }
@@ -78,7 +101,10 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final categoriesAsync = ref.watch(categoriesProvider);
 
+    final categories = categoriesAsync.valueOrNull ?? [];
+    
     return Scaffold(
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Document' : 'Add Document'),
@@ -89,9 +115,9 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             // ── File picker ──────────────────────────────────────────
-            _label(_isEditing ? 'Replace Document File (optional)' : 'Document File *'),
+            _label('Files (${_existingFiles.length + _newFiles.length}) *'),
             const SizedBox(height: 8),
-            _filePicker(scheme),
+            _multiFilePicker(scheme),
             const SizedBox(height: 20),
 
             // ── Name ─────────────────────────────────────────────────
@@ -100,7 +126,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             TextFormField(
               controller: _nameCtrl,
               decoration: const InputDecoration(
-                  hintText: 'e.g. Aadhaar Card, Driving Licence'),
+                  hintText: 'e.g. Identity Bundle, Medical Reports'),
               textCapitalization: TextCapitalization.words,
               validator: (v) => (v == null || v.trim().isEmpty)
                   ? 'Name is required'
@@ -111,7 +137,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             // ── Category ─────────────────────────────────────────────
             _label('Category'),
             const SizedBox(height: 8),
-            _categoryGrid(scheme),
+            categoriesAsync.when(
+              data: (cats) => _categoryGrid(scheme, cats),
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (_, __) => const Text('Error loading categories'),
+            ),
             const SizedBox(height: 20),
 
             // ── Note ─────────────────────────────────────────────────
@@ -120,7 +150,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             TextFormField(
               controller: _noteCtrl,
               decoration: const InputDecoration(
-                  hintText: 'e.g. Original kept in drawer'),
+                  hintText: 'e.g. Contains multiple pages'),
               maxLines: 2,
             ),
             const SizedBox(height: 20),
@@ -131,7 +161,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             TextFormField(
               controller: _tagsCtrl,
               decoration: const InputDecoration(
-                  hintText: 'e.g. aadhaar, uid, identity'),
+                  hintText: 'e.g. tax, personal, multiple'),
             ),
             const SizedBox(height: 20),
 
@@ -209,150 +239,307 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         ),
       );
 
-  Widget _filePicker(ColorScheme scheme) {
-    final showNewFile = _pickedFile != null;
-    final showOldFile = !showNewFile && _isEditing && _previewFile != null;
-    final isImage = showNewFile
-        ? ['jpg', 'jpeg', 'png'].contains(_fileExtension)
-        : showOldFile &&
-            ['jpg', 'jpeg', 'png']
-                .contains(widget.existingDocument!.fileExtension.toLowerCase());
+  Widget _multiFilePicker(ColorScheme scheme) {
+    return Container(
+      height: 140,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.all(12),
+        itemCount: _existingFiles.length + _newFiles.length + 1,
+        itemBuilder: (context, i) {
+          // Add button at the end
+          if (i == _existingFiles.length + _newFiles.length) {
+            return _addFileButton(scheme);
+          }
 
+          final bool isExisting = i < _existingFiles.length;
+          final dynamic file = isExisting ? _existingFiles[i] : _newFiles[i - _existingFiles.length];
+          
+          return _fileThumbnail(scheme, file, isExisting);
+        },
+      ),
+    );
+  }
+
+  Widget _addFileButton(ColorScheme scheme) {
     return GestureDetector(
       onTap: _showPickerSheet,
       child: Container(
-        height: 160,
-        width: double.infinity,
+        width: 100,
+        margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
-          border: Border.all(
-            color: (showNewFile || showOldFile)
-                ? scheme.primary
-                : scheme.outlineVariant,
-            width: (showNewFile || showOldFile) ? 1.5 : 1,
-          ),
+          color: scheme.surface,
           borderRadius: BorderRadius.circular(12),
-          color: (showNewFile || showOldFile)
-              ? scheme.primaryContainer.withOpacity(0.1)
-              : scheme.surfaceVariant.withOpacity(0.3),
+          border: Border.all(color: scheme.primary.withValues(alpha: 0.3), style: BorderStyle.solid),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (showNewFile || showOldFile) ...[
-              if (isImage)
-                Image.file(
-                  showNewFile ? _pickedFile! : _previewFile!,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                )
-              else
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.insert_drive_file_rounded,
-                        size: 48, color: scheme.primary),
-                    const SizedBox(height: 8),
-                    Text(
-                      showNewFile
-                          ? _pickedFile!.path.split('/').last
-                          : widget.existingDocument!.name,
-                      style: TextStyle(
-                          color: scheme.primary, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              // Overlay with change button
-              Positioned.fill(
-                child: Container(
-                  color: Colors.black26,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.edit_rounded,
-                              color: Colors.white, size: 16),
-                          SizedBox(width: 8),
-                          Text('Change File',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ] else
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.upload_file_rounded,
-                      size: 32, color: scheme.onSurfaceVariant),
-                  const SizedBox(height: 6),
-                  Text('Tap to pick file or scan document',
-                      style: TextStyle(
-                          color: scheme.onSurfaceVariant, fontSize: 13)),
-                ],
-              ),
+            Icon(Icons.add_a_photo_rounded, color: scheme.primary, size: 28),
+            const SizedBox(height: 8),
+            Text('Add File', style: TextStyle(color: scheme.primary, fontSize: 12, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
     );
   }
 
-  Widget _categoryGrid(ColorScheme scheme) {
+  Widget _fileThumbnail(ColorScheme scheme, dynamic file, bool isExisting) {
+    String ext = '';
+    File? displayFile;
+    
+    if (isExisting) {
+      final df = file as DocumentFile;
+      ext = df.fileExtension.toLowerCase();
+      displayFile = _decryptedPreviews[df.encryptedFilePath];
+    } else {
+      final f = file as File;
+      ext = f.path.split('.').last.toLowerCase();
+      displayFile = f;
+    }
+
+    final isImage = ['jpg', 'jpeg', 'png', 'webp'].contains(ext);
+
+    return Container(
+      width: 100,
+      margin: const EdgeInsets.only(right: 12),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: scheme.outlineVariant),
+              image: (isImage && displayFile != null)
+                  ? DecorationImage(image: FileImage(displayFile), fit: BoxFit.cover)
+                  : null,
+            ),
+            child: (!isImage || displayFile == null)
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(ext == 'pdf' ? Icons.picture_as_pdf_rounded : Icons.insert_drive_file_rounded, 
+                             color: ext == 'pdf' ? Colors.red : scheme.primary, 
+                             size: 32),
+                        const SizedBox(height: 4),
+                        Text(ext.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  )
+                : null,
+          ),
+          // Remove button
+          Positioned(
+            top: 4,
+            right: 4,
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  if (isExisting) {
+                    _filesToDelete.add(file as DocumentFile);
+                    _existingFiles.remove(file);
+                  } else {
+                    _newFiles.remove(file as File);
+                  }
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryGrid(ColorScheme scheme, List<Category> categories) {
+    if (_categoryId == null && categories.isNotEmpty) {
+      // Use the first category by default
+      _categoryId = categories.first.id;
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: DocumentCategory.values.map((cat) {
-        final selected = _category == cat;
-        return GestureDetector(
-          onTap: () => setState(() => _category = cat),
+      children: [
+        ...categories.map((cat) {
+          final selected = _categoryId == cat.id;
+          return GestureDetector(
+            onTap: () => setState(() => _categoryId = cat.id),
+            onLongPress: () => _showCategoryOptions(cat),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected
+                    ? scheme.primaryContainer
+                    : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: selected ? scheme.primary : Colors.transparent,
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(cat.icon, style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 6),
+                  Text(
+                    cat.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: selected
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        GestureDetector(
+          onTap: _showAddCategoryDialog,
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: selected
-                  ? scheme.primaryContainer
-                  : scheme.surfaceVariant.withOpacity(0.5),
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: selected ? scheme.primary : Colors.transparent,
-                width: 1.5,
+                color: scheme.outlineVariant,
+                width: 1,
+                style: BorderStyle.solid,
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(cat.icon, style: const TextStyle(fontSize: 14)),
-                const SizedBox(width: 6),
+                Icon(Icons.add_rounded, size: 16, color: scheme.primary),
+                const SizedBox(width: 4),
                 Text(
-                  cat.label,
+                  'New',
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: selected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                    color: selected
-                        ? scheme.primary
-                        : scheme.onSurfaceVariant,
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-        );
-      }).toList(),
+        ),
+      ],
+    );
+  }
+
+  void _showAddCategoryDialog({Category? editCategory}) {
+    final nameCtrl = TextEditingController(text: editCategory?.name);
+    final iconCtrl = TextEditingController(text: editCategory?.icon ?? '📄');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(editCategory == null ? 'Add Category' : 'Edit Category'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: iconCtrl,
+              decoration: const InputDecoration(labelText: 'Icon (Emoji)'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Category Name'),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              final icon = iconCtrl.text.trim();
+              if (name.isNotEmpty && icon.isNotEmpty) {
+                if (editCategory == null) {
+                  ref.read(categoriesProvider.notifier).addCategory(name, icon);
+                } else {
+                  ref.read(categoriesProvider.notifier).updateCategory(
+                    editCategory.copyWith(name: name, icon: icon),
+                  );
+                }
+                Navigator.pop(ctx);
+              }
+            },
+            child: Text(editCategory == null ? 'Add' : 'Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCategoryOptions(Category category) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.edit_rounded),
+            title: const Text('Edit Category'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showAddCategoryDialog(editCategory: category);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+            title: const Text('Delete Category', style: TextStyle(color: Colors.red)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _confirmDeleteCategory(category);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCategory(Category category) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Category?'),
+        content: Text('Documents in "${category.name}" will be moved to "Other".'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              ref.read(categoriesProvider.notifier).deleteCategory(category.id!);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -417,18 +604,26 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.upload_file_rounded),
-              title: const Text('Pick from storage'),
+              title: const Text('Pick files from storage'),
               onTap: () {
                 Navigator.pop(ctx);
-                _pickFromStorage();
+                _pickFiles();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Pick images from gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhotos();
               },
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Take photo'),
+              title: const Text('Take a photo'),
               onTap: () {
                 Navigator.pop(ctx);
-                _pickFromCamera();
+                _takePhoto();
               },
             ),
           ],
@@ -437,43 +632,71 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     );
   }
 
-  Future<void> _pickFromStorage() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-    );
-    if (result != null && result.files.single.path != null) {
+  Future<void> _takePhoto() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) return;
+    final image = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (image != null) {
       setState(() {
-        _pickedFile = File(result.files.single.path!);
-        _fileExtension =
-            result.files.single.extension?.toLowerCase() ?? 'pdf';
+        _newFiles.add(File(image.path));
       });
     }
   }
 
-  Future<void> _pickFromCamera() async {
-    final status = await Permission.camera.request();
-    if (!status.isGranted) return;
-    final image =
-        await ImagePicker().pickImage(source: ImageSource.camera);
-    if (image != null) {
+  Future<void> _pickFiles() async {
+    if (Platform.isAndroid) {
+      final status = await Permission.storage.request();
+      if (!status.isGranted) return;
+    }
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+      allowMultiple: true,
+    );
+    if (result != null) {
       setState(() {
-        _pickedFile = File(image.path);
-        _fileExtension = 'jpg';
+        _newFiles.addAll(result.files.where((f) => f.path != null).map((f) => File(f.path!)));
+      });
+    }
+  }
+
+  Future<void> _pickPhotos() async {
+    final status = await Permission.photos.request();
+    if (!status.isGranted) return;
+    final images = await ImagePicker().pickMultiImage();
+    if (images.isNotEmpty) {
+      setState(() {
+        _newFiles.addAll(images.map((img) => File(img.path)));
       });
     }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_isEditing && _pickedFile == null) {
+    if (_existingFiles.isEmpty && _newFiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a document file')),
+        const SnackBar(content: Text('Please add at least one file')),
+      );
+      return;
+    }
+
+    if (_categoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category')),
       );
       return;
     }
 
     setState(() => _isSaving = true);
+    
+    if (mounted) {
+      ProcessingOverlay.show(
+        context, 
+        message: _newFiles.isNotEmpty ? 'Encrypting files...' : 'Saving changes...',
+      );
+    }
+
+    final startTime = DateTime.now();
 
     try {
       final db = ref.read(dbProvider);
@@ -483,55 +706,48 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           .where((t) => t.isNotEmpty)
           .toList();
 
+      // 1. Encrypt new files
+      List<DocumentFile> finalFileList = List.from(_existingFiles);
+      for (var f in _newFiles) {
+        final encPath = await EncryptionService.encryptFile(f);
+        finalFileList.add(DocumentFile(
+          encryptedFilePath: encPath, 
+          fileExtension: f.path.split('.').last.toLowerCase(), 
+          fileSizeBytes: await f.length(),
+        ));
+      }
+
+      // 2. Delete removed files from disk
+      for (var f in _filesToDelete) {
+        await EncryptionService.deleteEncryptedFile(f.encryptedFilePath);
+      }
+
       if (_isEditing) {
-        String encPath = widget.existingDocument!.encryptedFilePath;
-        String ext = widget.existingDocument!.fileExtension;
-        int size = widget.existingDocument!.fileSizeBytes;
-
-        if (_pickedFile != null) {
-          // Encrypt new file
-          final newPath = await EncryptionService.encryptFile(_pickedFile!);
-          // Delete old file
-          await EncryptionService.deleteEncryptedFile(encPath);
-          // Update metadata
-          encPath = newPath;
-          ext = _fileExtension ?? 'pdf';
-          size = await _pickedFile!.length();
-        }
-
         final updated = widget.existingDocument!.copyWith(
           name: _nameCtrl.text.trim(),
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-          category: _category,
-          encryptedFilePath: encPath,
-          fileExtension: ext,
-          fileSizeBytes: size,
+          categoryId: _categoryId!,
+          files: finalFileList,
           tags: tags,
           issueDate: _issueDate,
           expiryDate: _expiryDate,
           updatedAt: DateTime.now(),
         );
         
-        // Cancel old reminder before potentially scheduling new one
         await NotificationService.cancelReminder(updated.id!);
-        
         await db.updateDocument(updated);
+        
         if (_expiryDate != null) {
-          await NotificationService.scheduleExpiryReminder(updated);
+          final hasPerm = await NotificationService.hasPermission();
+          if (hasPerm) await NotificationService.scheduleExpiryReminder(updated);
         }
       } else {
-        final encPath =
-            await EncryptionService.encryptFile(_pickedFile!);
         final now = DateTime.now();
         final doc = Document(
           name: _nameCtrl.text.trim(),
-          note: _noteCtrl.text.trim().isEmpty
-              ? null
-              : _noteCtrl.text.trim(),
-          category: _category,
-          encryptedFilePath: encPath,
-          fileExtension: _fileExtension ?? 'pdf',
-          fileSizeBytes: await _pickedFile!.length(),
+          note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+          categoryId: _categoryId!,
+          files: finalFileList,
           tags: tags,
           issueDate: _issueDate,
           expiryDate: _expiryDate,
@@ -540,17 +756,24 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         );
         final id = await db.addDocument(doc);
         if (_expiryDate != null) {
-          await NotificationService.scheduleExpiryReminder(
-              doc.copyWith(id: id));
+          final hasPerm = await NotificationService.hasPermission();
+          if (hasPerm) await NotificationService.scheduleExpiryReminder(doc.copyWith(id: id));
         }
       }
 
-      if (mounted) Navigator.pop(context);
+      final elapsed = DateTime.now().difference(startTime);
+      if (elapsed < const Duration(seconds: 1)) {
+        await Future.delayed(const Duration(seconds: 1) - elapsed);
+      }
+
+      if (mounted) {
+        if (Navigator.canPop(context)) Navigator.pop(context);
+        Navigator.pop(context);
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e')),
-        );
+        if (Navigator.canPop(context)) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docvault/providers/providers.dart';
 import 'package:docvault/services/auth_service.dart';
 import 'package:docvault/services/encryption_service.dart';
+import 'package:docvault/models/category.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -30,6 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final bioEnabled = await AuthService.isBiometricEnabled();
     final autoLock = await AuthService.getAutoLockDuration();
 
+    if (!mounted) return;
     setState(() {
       _hasPin = pin;
       _bioAvailable = bioAvail;
@@ -78,6 +80,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           const Divider(),
 
+          // ── Appearance & Content ─────────────────────────────────────
+          _header('Appearance & Content'),
+          ListTile(
+            leading: const Icon(Icons.category_outlined),
+            title: const Text('Manage Categories'),
+            subtitle: const Text('Add, edit or delete document categories'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _showCategoriesManager,
+          ),
+
+          const Divider(),
+
           // ── Storage ───────────────────────────────────────────────────
           _header('Storage'),
           ListTile(
@@ -114,6 +128,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showCategoriesManager() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => const _CategoryManagerSheet(),
     );
   }
 
@@ -165,9 +191,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: Theme.of(context).colorScheme.primary)
                       : null,
                   onTap: () async {
+                    final nav = Navigator.of(ctx);
                     await AuthService.setAutoLockDuration(e.key);
-                    setState(() => _autoLockSeconds = e.key);
-                    if (mounted) Navigator.pop(ctx);
+                    if (mounted) {
+                      setState(() => _autoLockSeconds = e.key);
+                    }
+                    nav.pop();
                   },
                 )),
           ],
@@ -256,6 +285,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       
       if (!verified) {
         // Fallback to PIN if bio fails or is disabled
+        if (!mounted) return;
         final pin = await _verifyPinDialog();
         if (pin != null) {
           verified = await AuthService.verifyPin(pin);
@@ -267,12 +297,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
       }
     } else {
+      if (!mounted) return;
       verified = await _typeDeleteDialog();
     }
 
     if (!verified) return;
 
     // Step 3: CAPTCHA (Math Problem)
+    if (!mounted) return;
     final captchaOk = await _captchaDialog();
     if (captchaOk != true) return;
 
@@ -432,6 +464,164 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               }
             },
             child: const Text('Verify & Delete All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryManagerSheet extends ConsumerWidget {
+  const _CategoryManagerSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categoriesAsync = ref.watch(categoriesProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      minChildSize: 0.5,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: scheme.outlineVariant,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                const Text(
+                  'Manage Categories',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton.filledTonal(
+                  onPressed: () => _showAddCategoryDialog(context, ref),
+                  icon: const Icon(Icons.add_rounded),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: categoriesAsync.when(
+              data: (categories) => ListView.builder(
+                controller: scrollController,
+                itemCount: categories.length,
+                padding: const EdgeInsets.only(bottom: 40),
+                itemBuilder: (ctx, i) {
+                  final cat = categories[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: scheme.primaryContainer.withValues(alpha: 0.5),
+                      child: Text(cat.icon, style: const TextStyle(fontSize: 18)),
+                    ),
+                    title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                          onPressed: () => _showAddCategoryDialog(context, ref, editCategory: cat),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+                          onPressed: () => _confirmDeleteCategory(context, ref, cat, categories.length),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('Error: $e')),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddCategoryDialog(BuildContext context, WidgetRef ref, {Category? editCategory}) {
+    final nameCtrl = TextEditingController(text: editCategory?.name);
+    final iconCtrl = TextEditingController(text: editCategory?.icon ?? '📄');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(editCategory == null ? 'Add Category' : 'Edit Category'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: iconCtrl,
+              decoration: const InputDecoration(labelText: 'Icon (Emoji)'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Category Name'),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              final icon = iconCtrl.text.trim();
+              if (name.isNotEmpty && icon.isNotEmpty) {
+                if (editCategory == null) {
+                  ref.read(categoriesProvider.notifier).addCategory(name, icon);
+                } else {
+                  ref.read(categoriesProvider.notifier).updateCategory(
+                        editCategory.copyWith(name: name, icon: icon),
+                      );
+                }
+                Navigator.pop(ctx);
+              }
+            },
+            child: Text(editCategory == null ? 'Add' : 'Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCategory(BuildContext context, WidgetRef ref, Category category, int count) {
+    if (count <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot delete the last category')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Category?'),
+        content: Text('Documents in "${category.name}" will be moved to "Other".'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              ref.read(categoriesProvider.notifier).deleteCategory(category.id!);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),

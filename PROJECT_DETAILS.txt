@@ -1,0 +1,119 @@
+================================================================================
+DOCVAULT - PROJECT ARCHITECTURE & TECHNICAL SPECIFICATIONS
+================================================================================
+
+1. PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+DocVault is an offline-first, highly secure document management application. 
+It provides an encrypted vault for users to store sensitive personal documents 
+(e.g., Identity, Medical, Finance, Property) securely on their local device.
+The application ensures that data never leaves the device unencrypted and 
+relies entirely on local cryptographic standards and biometric authentication.
+
+2. TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+- Framework: Flutter (Dart)
+- Architecture: Provider/Riverpod based State Management
+- Local Database: SQLite (via sqflite plugin)
+- Encryption: AES-GCM (via encrypt plugin)
+- Secure Storage: Flutter Secure Storage (for Key Management)
+- Authentication: Local Auth (Biometrics - Fingerprint/FaceID)
+
+3. SECURITY ARCHITECTURE
+--------------------------------------------------------------------------------
+The security model is designed to prevent unauthorized access even if the device's 
+physical storage is compromised.
+
+A. Cryptography (AES-GCM):
+   - Every file added to DocVault is encrypted using AES (Advanced Encryption Standard) 
+     in GCM (Galois/Counter Mode).
+   - Key Generation: A 256-bit cryptographic key is generated securely on first launch 
+     and stored inside the OS's secure enclave (Keystore on Android / Keychain on iOS) 
+     via `flutter_secure_storage`.
+   - File Header: Encrypted files prepend a custom magic header (`[0x44, 0x56, 0x01]` -> "DV" v1) 
+     and a 12-byte secure IV (Initialization Vector) generated specifically for that file.
+   - Backward Compatibility: The system falls back to legacy CBC mode if an older 
+     un-versioned file is detected during decryption.
+
+B. Authentication & Access Control:
+   - Biometric First: Access to the app requires biometric verification.
+   - Fallback: A 4-digit PIN is configured by the user as a fallback.
+   - Persistent Lockout: The `AuthService` handles auto-locking mechanisms. An idle 
+     timeout forces a re-authentication.
+
+C. Memory & Temporary File Management:
+   - On-Demand Decryption: To conserve RAM and prevent sensitive data leakage, multi-file 
+     documents decrypt only the actively viewed file to the temporary directory.
+   - Aggressive Cleanup: Temporary decrypted files (`.temp`) are actively wiped from the disk:
+     - On app initialization.
+     - Upon closing a viewing session.
+     - On app backgrounding/termination.
+
+4. DATABASE SCHEMA (SQLite V3)
+--------------------------------------------------------------------------------
+The internal database uses a relational model optimized for multi-file documents.
+
+Tables:
+1. `categories`
+   - id (INTEGER PRIMARY KEY AUTOINCREMENT)
+   - name (TEXT)
+   - icon (TEXT)
+   - Notes: Dynamically manageable list of categories.
+
+2. `documents`
+   - id (INTEGER PRIMARY KEY AUTOINCREMENT)
+   - name (TEXT)
+   - note (TEXT)
+   - category (INTEGER) -> Foreign key to categories.id
+   - issueDate (INTEGER) -> Epoch timestamp
+   - expiryDate (INTEGER) -> Epoch timestamp
+   - createdAt (INTEGER) -> Epoch timestamp
+   - updatedAt (INTEGER) -> Epoch timestamp
+   - isStarred (INTEGER)
+   - tags (TEXT)
+
+3. `document_files`
+   - id (INTEGER PRIMARY KEY AUTOINCREMENT)
+   - document_id (INTEGER) -> Foreign Key to documents.id (ON DELETE CASCADE)
+   - encryptedFilePath (TEXT) -> Absolute path to the .enc file in app storage.
+   - fileExtension (TEXT)
+   - fileSizeBytes (INTEGER)
+   - Notes: Handles the 1-to-N relationship allowing multiple attachments per document record.
+
+5. STATE MANAGEMENT & DATA FLOW
+--------------------------------------------------------------------------------
+- Riverpod Notifiers: The app uses `StateNotifierProvider` for robust reactivity.
+- `categoriesProvider`: Manages the state of available categories. Changes here 
+  automatically propagate to UI filters and settings.
+- `documentsProvider`: Listens to `selectedCategoryProvider` and `categoriesProvider`. 
+  When a user selects a filter tag, `documentsProvider` automatically re-queries 
+  the local SQLite database and updates the UI without requiring manual callback chains.
+
+6. CORE WORKFLOWS
+--------------------------------------------------------------------------------
+A. Adding a Document:
+   1. User picks files (Storage, Camera, Gallery).
+   2. Files are temporarily held in state.
+   3. On save, `EncryptionService` generates a random IV, encrypts each file payload 
+      using the Secure Key, and writes `.enc` files to the App Documents directory.
+   4. Metadata and file paths are saved to SQLite (`documents` and `document_files` tables).
+   5. Original source files remain untouched; cached previews are destroyed.
+
+B. Viewing a Document:
+   1. User selects a document. 
+   2. `ViewDocumentScreen` loads the record.
+   3. A thumbnail strip displays available files.
+   4. When a thumbnail is tapped, `EncryptionService.decryptToTemp` is invoked. It reads 
+      the `.enc` file, extracts the IV, decrypts the payload, and writes to a temporary location.
+   5. The UI renders the temporary file. 
+   6. On dispose, temporary files are securely deleted.
+
+C. Deleting a Document:
+   1. `DatabaseService` initiates a cascading delete.
+   2. `EncryptionService` is called to physically delete all associated `.enc` blobs from 
+      local storage to prevent orphaned encrypted blobs.
+   3. SQLite record is dropped.
+
+================================================================================
+END OF SPECIFICATIONS
+================================================================================

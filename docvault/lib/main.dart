@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:syncfusion_flutter_core/core.dart';
 import 'package:docvault/services/database_service.dart';
 import 'package:docvault/services/encryption_service.dart';
 import 'package:docvault/services/notification_service.dart';
@@ -10,10 +11,34 @@ import 'package:docvault/providers/providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DatabaseService.init();
-  await EncryptionService.init();
-  await NotificationService.init();
-  await NotificationService.requestPermissions();
+
+  //pdfViewer--licence
+  SyncfusionLicense.registerLicense(
+      'Ngo9BigBOggjHTQxAR8/V1JHaF1cXmhPYVJ2WmFZfVhgdV9HZVZQRGY/P1ZhSXxVdkNjWn5dcXFURmddWUJ9XEE=');
+
+  try {
+    await DatabaseService.init();
+    await EncryptionService.init();
+    await NotificationService.init();
+  } catch (e) {
+    debugPrint('Initialization failed: $e');
+    runApp(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Text(
+              'Initialization failed: $e\n\nPlease try clearing app data if this persists.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ),
+      ),
+    ));
+    return;
+  }
+
   runApp(const ProviderScope(child: DocVaultApp()));
 }
 
@@ -54,6 +79,9 @@ class _AppLockWrapperState extends ConsumerState<_AppLockWrapper>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkLock();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.requestPermissions();
+    });
   }
 
   @override
@@ -73,7 +101,7 @@ class _AppLockWrapperState extends ConsumerState<_AppLockWrapper>
 
   Future<void> _checkAutoLock() async {
     if (_backgroundAt == null) return;
-    
+
     final hasPin = await AuthService.hasPin();
     if (!hasPin) return;
 
@@ -93,17 +121,20 @@ class _AppLockWrapperState extends ConsumerState<_AppLockWrapper>
   Future<void> _checkLock() async {
     if (_checked) return;
     _checked = true;
-    
-    // Wait for the next frame to ensure Navigator is ready
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final hasPin = await AuthService.hasPin();
-      if (hasPin && mounted) {
-        final unlocked = ref.read(isUnlockedProvider);
-        if (!unlocked) {
-          AppRouter.navigatorKey.currentState?.pushNamed(AppRouter.lock);
-        }
-      }
-    });
+
+    final hasPin = await AuthService.hasPin();
+    if (hasPin) {
+      // Proactively set to locked
+      ref.read(isUnlockedProvider.notifier).state = false;
+
+      // Wait for the next frame to ensure Navigator is ready
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        // Small delay as fallback for real devices
+        await Future.delayed(const Duration(milliseconds: 100));
+        AppRouter.navigatorKey.currentState?.pushNamed(AppRouter.lock);
+      });
+    }
   }
 
   @override

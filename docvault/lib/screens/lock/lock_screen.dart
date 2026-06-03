@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docvault/providers/providers.dart';
@@ -14,6 +15,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   String _pin = '';
   String? _error;
   bool _bioAvailable = false;
+  DateTime? _lockoutUntil;
+  Timer? _lockoutTimer;
 
   @override
   void initState() {
@@ -21,19 +24,59 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     _init();
   }
 
+  @override
+  void dispose() {
+    _lockoutTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _init() async {
+    await _checkLockout();
+    
     final available = await AuthService.isBiometricsAvailable();
     final enabled = await AuthService.isBiometricEnabled();
     setState(() => _bioAvailable = available && enabled);
-    if (available && enabled) _tryBio();
+    
+    // Auto-trigger biometrics if enabled and NOT locked out
+    if (available && enabled && _lockoutUntil == null) {
+      _tryBio();
+    }
+  }
+
+  Future<void> _checkLockout() async {
+    final until = await AuthService.getLockoutUntil();
+    setState(() => _lockoutUntil = until);
+    
+    if (until != null) {
+      _startLockoutTimer(until);
+    }
+  }
+
+  void _startLockoutTimer(DateTime until) {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (DateTime.now().isAfter(until)) {
+        setState(() => _lockoutUntil = null);
+        timer.cancel();
+        // Auto-trigger biometrics again once lockout ends
+        if (_bioAvailable) {
+          _tryBio();
+        }
+      } else {
+        setState(() {}); // Refresh countdown
+      }
+    });
   }
 
   Future<void> _tryBio() async {
+    if (_lockoutUntil != null) return;
     final ok = await AuthService.authenticateWithBiometrics();
     if (ok && mounted) _unlock();
   }
 
-  void _unlock() {
+  Future<void> _unlock() async {
+    await AuthService.resetFailedAttempts();
+    if (!mounted) return;
     ref.read(isUnlockedProvider.notifier).state = true;
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -43,6 +86,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   }
 
   void _onKey(String key) {
+    if (_lockoutUntil != null) return;
     if (_pin.length >= 4) return;
     setState(() {
       _pin += key;
@@ -52,6 +96,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   }
 
   void _onDelete() {
+    if (_lockoutUntil != null) return;
     if (_pin.isEmpty) return;
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
@@ -61,16 +106,35 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (ok) {
       _unlock();
     } else {
-      setState(() {
-        _pin = '';
-        _error = 'Incorrect PIN. Try again.';
-      });
+      final until = await AuthService.getLockoutUntil();
+      if (until != null) {
+        setState(() {
+          _pin = '';
+          _lockoutUntil = until;
+          _error = null;
+        });
+        _startLockoutTimer(until);
+      } else {
+        setState(() {
+          _pin = '';
+          _error = 'Incorrect PIN. Try again.';
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+
+    String topText;
+    if (_lockoutUntil != null) {
+      final diff = _lockoutUntil!.difference(DateTime.now());
+      final seconds = diff.inSeconds.clamp(0, 3600);
+      topText = 'Locked. Try again in $seconds seconds';
+    } else {
+      topText = 'Enter your PIN to continue';
+    }
 
     return PopScope(
       canPop: false,
@@ -102,9 +166,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                     style: TextStyle(
                         fontSize: 26, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
-                Text('Enter your PIN to continue',
+                Text(topText,
+                    textAlign: TextAlign.center,
                     style:
-                        TextStyle(color: scheme.onSurfaceVariant)),
+                        TextStyle(color: _lockoutUntil != null ? scheme.error : scheme.onSurfaceVariant)),
                 const SizedBox(height: 36),
 
                 // PIN dots
@@ -133,7 +198,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 20,
-                  child: _error != null
+                  child: (_error != null && _lockoutUntil == null)
                       ? Text(_error!,
                           style: TextStyle(
                               color: scheme.error, fontSize: 13))
@@ -162,6 +227,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
       ['BIO', '0', '⌫'],
     ];
 
+    final isLocked = _lockoutUntil != null;
+
     return Column(
       children: keys.map((row) {
         return Padding(
@@ -183,9 +250,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       shape: const CircleBorder(),
                       backgroundColor: key == 'BIO' || key == '⌫'
                           ? Colors.transparent
-                          : scheme.surfaceVariant.withOpacity(0.5),
+                          : scheme.surfaceContainerHighest.withValues(alpha: isLocked ? 0.2 : 0.5),
                     ),
-                    onPressed: () {
+                    onPressed: isLocked ? null : () {
                       if (key == 'BIO') {
                         _tryBio();
                       } else if (key == '⌫') {
@@ -196,12 +263,12 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                     },
                     child: key == 'BIO'
                         ? Icon(Icons.fingerprint_rounded,
-                            size: 32, color: scheme.primary)
+                            size: 32, color: isLocked ? scheme.outline : scheme.primary)
                         : Text(
                             key,
                             style: TextStyle(
                               fontSize: key == '⌫' ? 22 : 28,
-                              color: scheme.onSurface,
+                              color: isLocked ? scheme.outline : scheme.onSurface,
                               fontWeight: FontWeight.w500,
                             ),
                           ),

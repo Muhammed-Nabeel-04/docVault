@@ -8,8 +8,11 @@ import 'package:uuid/uuid.dart';
 class EncryptionService {
   static const _keyAlias = 'docvault_aes_key';
   static const _legacyIvAlias = 'docvault_aes_iv'; // Keep for legacy CBC
+  static const _magicHeader = [0x44, 0x56, 0x01]; // "DV" + version 1
   static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    aOptions: AndroidOptions(
+      resetOnError: true,
+    ),
   );
 
   static late enc.Key _key;
@@ -29,7 +32,7 @@ class EncryptionService {
     if (legacyIvB64 != null) {
       _legacyIv = enc.IV.fromBase64(legacyIvB64);
     }
-    
+
     // Cleanup any stale temp files from previous sessions/crashes
     await clearTempFiles();
   }
@@ -61,13 +64,15 @@ class EncryptionService {
     if (!await encDir.exists()) await encDir.create(recursive: true);
 
     final file = File('${encDir.path}/${const Uuid().v4()}.enc');
-    
-    // Format: [Version Byte (1)] + [IV (12)] + [Data (ciphertext + tag)]
-    final combined = Uint8List(1 + iv.bytes.length + encrypted.bytes.length);
-    combined[0] = 0x01; // Version 1: AES-GCM
-    combined.setAll(1, iv.bytes);
-    combined.setAll(1 + iv.bytes.length, encrypted.bytes);
-    
+
+    // Format: ["DV" + version (3)] + [IV (12)] + [Data (ciphertext + tag)]
+    final combined = Uint8List(
+      _magicHeader.length + iv.bytes.length + encrypted.bytes.length,
+    );
+    combined.setAll(0, _magicHeader);
+    combined.setAll(_magicHeader.length, iv.bytes);
+    combined.setAll(_magicHeader.length + iv.bytes.length, encrypted.bytes);
+
     await file.writeAsBytes(combined);
     return file.path;
   }
@@ -76,29 +81,52 @@ class EncryptionService {
     final data = await File(path).readAsBytes();
     if (data.isEmpty) throw Exception('Empty file');
 
-    final version = data[0];
+    if (_hasMagicHeader(data)) {
+      return _decryptGcm(data, headerLength: _magicHeader.length);
+    }
 
-    if (version == 0x01) {
-      // Version 1: AES-GCM
-      if (data.length < 13) throw Exception('Invalid GCM file');
-      final ivBytes = data.sublist(1, 13);
-      final encBytes = data.sublist(13);
-      
-      final iv = enc.IV(ivBytes);
-      final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.gcm));
-      return Uint8List.fromList(
-          encrypter.decryptBytes(enc.Encrypted(encBytes), iv: iv));
-    } else {
-      // Legacy CBC or unknown - try CBC fallback
-      if (_legacyIv == null) throw Exception('Legacy IV not found');
-      
-      final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.cbc));
+    if (data[0] == 0x01) {
       try {
-        return Uint8List.fromList(
-            encrypter.decryptBytes(enc.Encrypted(data), iv: _legacyIv!));
-      } catch (e) {
-        throw Exception('Decryption failed (legacy fallback also failed): $e');
+        return await _decryptGcm(data, headerLength: 1);
+      } catch (_) {
+        if (_legacyIv == null) rethrow;
       }
+    }
+
+    return _decryptLegacyCbc(data);
+  }
+
+  static bool _hasMagicHeader(Uint8List data) {
+    if (data.length < _magicHeader.length) return false;
+    for (var i = 0; i < _magicHeader.length; i++) {
+      if (data[i] != _magicHeader[i]) return false;
+    }
+    return true;
+  }
+
+  static Future<Uint8List> _decryptGcm(
+    Uint8List data, {
+    required int headerLength,
+  }) async {
+    if (data.length < headerLength + 12) throw Exception('Invalid GCM file');
+    final ivBytes = data.sublist(headerLength, headerLength + 12);
+    final encBytes = data.sublist(headerLength + 12);
+
+    final iv = enc.IV(ivBytes);
+    final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.gcm));
+    return Uint8List.fromList(
+        encrypter.decryptBytes(enc.Encrypted(encBytes), iv: iv));
+  }
+
+  static Uint8List _decryptLegacyCbc(Uint8List data) {
+    if (_legacyIv == null) throw Exception('Legacy IV not found');
+
+    final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.cbc));
+    try {
+      return Uint8List.fromList(
+          encrypter.decryptBytes(enc.Encrypted(data), iv: _legacyIv!));
+    } catch (e) {
+      throw Exception('Decryption failed (legacy fallback also failed): $e');
     }
   }
 
@@ -122,7 +150,7 @@ class EncryptionService {
     if (await encDir.exists()) {
       await encDir.delete(recursive: true);
     }
-    
+
     // Clear temp decrypted files
     await clearTempFiles();
   }

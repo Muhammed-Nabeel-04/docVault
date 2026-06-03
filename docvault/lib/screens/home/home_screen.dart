@@ -90,7 +90,7 @@ class HomeScreen extends ConsumerWidget {
           docsAsync.when(
             data: (docs) {
               if (docs.isEmpty) {
-                return SliverFillRemaining(
+                return const SliverFillRemaining(
                   child: EmptyState(
                     title: 'No documents yet',
                     subtitle: 'Tap + to add your first document',

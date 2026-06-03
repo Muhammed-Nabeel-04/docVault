@@ -1,0 +1,52 @@
+Here’s a practical production checklist for *this* app, in the order I’d do it.
+
+1. **Finish the last code cleanup**
+   - Fix the remaining analyzer warnings in [lib/screens/settings/settings_screen.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\screens\settings\settings_screen.dart), [lib/screens/add_document/add_document_screen.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\screens\add_document\add_document_screen.dart), [lib/screens/view_document/view_document_screen.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\screens\view_document\view_document_screen.dart), and [lib/services/auth_service.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\services\auth_service.dart).
+   - Aim for `flutter analyze` to be clean, not just “no errors.”
+
+2. **Verify release build works**
+   - Run `flutter build appbundle --release`.
+   - Then run `flutter build apk --release` too if you want a direct installable build for testing.
+   - If either fails, don’t move forward yet.
+
+3. **Test on a real phone**
+   - Install the release build on an actual Android device.
+   - Check: first launch, lock/unlock, add document, open document, edit document, delete one document, clear all documents, search, biometrics, and notifications.
+   - Also test backgrounding the app and coming back after the auto-lock interval.
+
+4. **Test old data migration**
+   - Open documents created before the encryption change.
+   - Confirm they still decrypt correctly with the compatibility path in [lib/services/encryption_service.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\services\encryption_service.dart).
+   - This matters a lot if any user already has saved files.
+
+5. **Check Android target requirements**
+   - For a new Play Store app in 2026, target API level must be recent enough; Google Play currently requires new apps and updates to target Android 15 / API 35 or higher. Source: [Google Play target API policy](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en).
+   - Make sure your Flutter/Gradle config is set accordingly.
+
+6. **Make notification behavior real**
+   - Confirm permission prompts actually appear and reminders fire on device.
+   - You already request permission in [lib/main.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\main.dart), and schedule logic lives in [lib/services/notification_service.dart](D:\1 MyData\1 My data\(A) Study\(B) Ideas_Booooooooom\docvault_project\docvault\lib\services\notification_service.dart).
+   - Verify denied permission doesn’t create a false sense that reminders will happen.
+
+7. **Prepare Play Store compliance items**
+   - Fill out the Data safety form. Google requires this for published apps. Source: [Play Console Data safety help](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en).
+   - Add a privacy policy URL, even for a local-only vault app.
+   - Double-check sensitive permissions like biometrics, notifications, file access, and exact alarms.
+
+8. **Set up release signing**
+   - Use a proper keystore and keep it backed up.
+   - Confirm `android/app/build.gradle.kts` is using release signing correctly.
+
+9. **Polish app quality gates**
+   - Make sure `flutter test` passes.
+   - Add at least one or two meaningful tests around the lock flow or encryption migration.
+   - Verify crash-free startup after fresh install and after upgrade.
+
+10. **Do a final release candidate pass**
+   - Install the release build.
+   - Use it like a real user for a few minutes.
+   - Only then upload the `.aab` to Play Console.
+
+My honest read: the app is now in a much better state, but it’s at “strong beta / release candidate” rather than “fully production-polished.” The remaining difference is mostly release hardening, store compliance, and device testing.
+
+If you want, I can turn this into a concrete repo checklist and work through it file by file.

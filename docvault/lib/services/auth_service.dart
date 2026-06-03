@@ -6,10 +6,11 @@ class AuthService {
   static const _pinKey = 'docvault_pin';
   static const _bioEnabledKey = 'docvault_use_biometrics';
   static const _autoLockKey = 'docvault_auto_lock_duration';
+  static const _failedAttemptsKey = 'docvault_failed_attempts';
+  static const _lockoutUntilKey = 'docvault_lockout_until';
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
-      encryptedSharedPreferences: false,
       resetOnError: true,
     ),
   );
@@ -26,11 +27,57 @@ class AuthService {
 
   static Future<bool> verifyPin(String pin) async {
     final stored = await _storage.read(key: _pinKey);
-    return stored == pin;
+    final ok = stored == pin;
+    if (ok) {
+      await resetFailedAttempts();
+    } else {
+      await incrementFailedAttempts();
+    }
+    return ok;
   }
 
   static Future<void> removePin() async {
     await _storage.delete(key: _pinKey);
+    await resetFailedAttempts();
+  }
+
+  // ── Lockout ─────────────────────────────────────────────────────────────
+
+  static Future<int> getFailedAttempts() async {
+    final val = await _storage.read(key: _failedAttemptsKey);
+    return int.tryParse(val ?? '0') ?? 0;
+  }
+
+  static Future<void> incrementFailedAttempts() async {
+    final count = await getFailedAttempts() + 1;
+    await _storage.write(key: _failedAttemptsKey, value: count.toString());
+
+    if (count >= 5) {
+      int seconds = 30;
+      if (count == 6) seconds = 60;
+      if (count == 7) seconds = 300;
+      if (count >= 8) seconds = 1800;
+
+      final until = DateTime.now().add(Duration(seconds: seconds));
+      await _storage.write(key: _lockoutUntilKey, value: until.toIso8601String());
+    }
+  }
+
+  static Future<void> resetFailedAttempts() async {
+    await _storage.delete(key: _failedAttemptsKey);
+    await _storage.delete(key: _lockoutUntilKey);
+  }
+
+  static Future<DateTime?> getLockoutUntil() async {
+    final val = await _storage.read(key: _lockoutUntilKey);
+    if (val == null) return null;
+    final until = DateTime.tryParse(val);
+    if (until == null) return null;
+    if (until.isBefore(DateTime.now())) {
+      // Don't reset failed attempts here, only on successful login
+      return null;
+    }
+    return until;
   }
 
   // ── Biometrics ──────────────────────────────────────────────────────────

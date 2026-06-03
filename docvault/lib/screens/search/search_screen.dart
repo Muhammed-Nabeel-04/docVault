@@ -17,6 +17,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void dispose() {
     _ctrl.dispose();
+    // Reset shared state back to full list when leaving search
+    // We use a microtask to avoid updating providers during widget tree disposal if needed, 
+    // but ref.read is generally safe in dispose.
+    Future.microtask(() {
+      ref.read(searchQueryProvider.notifier).state = '';
+      ref.read(documentsProvider.notifier).load();
+    });
     super.dispose();
   }
 

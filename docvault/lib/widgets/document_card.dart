@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/document.dart';
+import '../models/category.dart';
+import '../providers/providers.dart';
 import '../utils/app_utils.dart';
 import '../utils/app_router.dart';
 
-class DocumentCard extends StatelessWidget {
+class DocumentCard extends ConsumerWidget {
   final Document document;
   final VoidCallback? onStar;
   final VoidCallback? onDelete;
@@ -19,11 +22,19 @@ class DocumentCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final expired = AppUtils.isExpired(document.expiryDate);
     final expiringSoon =
         !expired && AppUtils.isExpiringSoon(document.expiryDate);
+
+    final categories = ref.watch(categoriesProvider).valueOrNull ?? [];
+    final category = categories.firstWhere(
+      (c) => c.id == document.categoryId,
+      orElse: () => categories.isNotEmpty 
+          ? categories.first 
+          : Category(id: -1, name: 'Unknown', icon: '❓'),
+    );
 
     return GestureDetector(
       onTap: () => Navigator.pushNamed(
@@ -47,9 +58,35 @@ class DocumentCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child: Text(
-                    document.category.icon,
-                    style: const TextStyle(fontSize: 24),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Text(
+                        category.icon,
+                        style: const TextStyle(fontSize: 24),
+                      ),
+                      if (document.files.length > 1)
+                        Positioned(
+                          right: -4,
+                          bottom: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: scheme.surface, width: 2),
+                            ),
+                            child: Text(
+                              '${document.files.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -85,8 +122,8 @@ class DocumentCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${document.category.label}  ·  '
-                      '${AppUtils.formatFileSize(document.fileSizeBytes)}  ·  '
+                      '${category.name}  ·  '
+                      '${AppUtils.formatFileSize(document.files.isNotEmpty ? document.files.first.fileSizeBytes : 0)}  ·  '
                       '${AppUtils.timeAgo(document.createdAt)}',
                       style: TextStyle(
                         fontSize: 12,
