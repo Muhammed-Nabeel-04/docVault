@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
 import '../models/document.dart';
 
 class NotificationService {
@@ -10,6 +11,21 @@ class NotificationService {
 
   static Future<void> init() async {
     tz.initializeTimeZones();
+
+    try {
+      final tzInfo = await FlutterTimezone.getLocalTimezone();
+      const legacyNames = <String, String>{
+        'Asia/Calcutta': 'Asia/Kolkata',
+        'Asia/Ulaanbaatar': 'Asia/Ulan_Bator',
+        'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+        'Asia/Katmandu': 'Asia/Kathmandu',
+      };
+      final identifier = legacyNames[tzInfo.identifier] ?? tzInfo.identifier;
+      tz.setLocalLocation(tz.getLocation(identifier));
+    } catch (_) {
+      tz.setLocalLocation(tz.UTC);
+    }
+
     const android = AndroidInitializationSettings('@mipmap/launcher_icon');
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(settings);
@@ -49,7 +65,7 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
           ?.canScheduleExactNotifications();
-      
+
       if (canScheduleExact == false) {
         scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
       }

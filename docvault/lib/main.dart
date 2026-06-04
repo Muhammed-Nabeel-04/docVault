@@ -12,9 +12,13 @@ import 'package:docvault/providers/providers.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  //pdfViewer--licence
-  SyncfusionLicense.registerLicense(
-      'Ngo9BigBOggjHTQxAR8/V1JHaF1cXmhPYVJ2WmFZfVhgdV9HZVZQRGY/P1ZhSXxVdkNjWn5dcXFURmddWUJ9XEE=');
+  // pdfViewer--licence
+  const String syncfusionKey = String.fromEnvironment('SYNCFUSION_LICENSE_KEY');
+  if (syncfusionKey.isNotEmpty) {
+    SyncfusionLicense.registerLicense(syncfusionKey);
+  } else {
+    debugPrint('Warning: Syncfusion license key is missing. Set it via --dart-define=SYNCFUSION_LICENSE_KEY=your_key');
+  }
 
   try {
     await DatabaseService.init();

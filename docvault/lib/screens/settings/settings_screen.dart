@@ -5,6 +5,7 @@ import 'package:docvault/providers/providers.dart';
 import 'package:docvault/services/auth_service.dart';
 import 'package:docvault/services/encryption_service.dart';
 import 'package:docvault/models/category.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -124,7 +125,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Privacy Policy'),
             trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-            onTap: () {},
+            onTap: _launchPrivacyPolicy,
           ),
         ],
       ),
@@ -160,6 +161,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (seconds == 0) return 'Immediately';
     if (seconds < 60) return '$seconds seconds';
     return '${seconds ~/ 60} minutes';
+  }
+
+  Future<void> _launchPrivacyPolicy() async {
+    final Uri url = Uri.parse('https://www.termsfeed.com/live/c6cbb31a-ce91-41e8-be4c-d2249529c6f0');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch Privacy Policy')),
+        );
+      }
+    }
   }
 
   void _showAutoLockPicker() {

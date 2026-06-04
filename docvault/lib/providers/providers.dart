@@ -16,6 +16,13 @@ final isUnlockedProvider = StateProvider<bool>((ref) => true);
 
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
+final searchResultsProvider = FutureProvider<List<Document>>((ref) async {
+  final query = ref.watch(searchQueryProvider);
+  if (query.isEmpty) return [];
+  final db = ref.watch(dbProvider);
+  return db.search(query);
+});
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 final categoriesProvider =

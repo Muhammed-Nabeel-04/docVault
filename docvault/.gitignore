@@ -1,3 +1,9 @@
+# Android signing secrets
+**/android/key.properties
+**/android/app/*.jks
+SYNCFUSION_KEY.txt
+*.bat
+
 # Miscellaneous
 *.class
 *.log

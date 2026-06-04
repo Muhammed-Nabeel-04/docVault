@@ -11,7 +11,7 @@ class EncryptionService {
   static const _magicHeader = [0x44, 0x56, 0x01]; // "DV" + version 1
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
-      resetOnError: true,
+      resetOnError: false,
     ),
   );
 
@@ -19,8 +19,14 @@ class EncryptionService {
   static enc.IV? _legacyIv;
 
   static Future<void> init() async {
-    String? keyB64 = await _storage.read(key: _keyAlias);
-    String? legacyIvB64 = await _storage.read(key: _legacyIvAlias);
+    String? keyB64;
+    String? legacyIvB64;
+    try {
+      keyB64 = await _storage.read(key: _keyAlias);
+      legacyIvB64 = await _storage.read(key: _legacyIvAlias);
+    } catch (e) {
+      throw Exception('Secure Storage Error: Device Keystore invalidated (e.g. from lock screen changes). Data is safely encrypted but cannot be read without the original key. Error: $e');
+    }
 
     if (keyB64 == null) {
       final k = enc.Key.fromSecureRandom(32);

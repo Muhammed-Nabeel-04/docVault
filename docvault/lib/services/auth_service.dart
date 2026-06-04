@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -11,10 +13,16 @@ class AuthService {
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
-      resetOnError: true,
+      resetOnError: false,
     ),
   );
   static final _auth = LocalAuthentication();
+
+  static String _hashPin(String pin) {
+    // Basic hash with a static salt for the PIN.
+    final bytes = utf8.encode('docvault_salt_\$pin');
+    return sha256.convert(bytes).toString();
+  }
 
   static Future<bool> hasPin() async {
     final pin = await _storage.read(key: _pinKey);
@@ -22,18 +30,44 @@ class AuthService {
   }
 
   static Future<void> setPin(String pin) async {
-    await _storage.write(key: _pinKey, value: pin);
+    final hashed = _hashPin(pin);
+    await _storage.write(key: _pinKey, value: hashed);
   }
 
   static Future<bool> verifyPin(String pin) async {
     final stored = await _storage.read(key: _pinKey);
-    final ok = stored == pin;
+    if (stored == null) return false;
+
+    // Check if the stored PIN is plain-text (migration fallback)
+    // A SHA256 hash is 64 characters long in hex. If it's short, it's probably the old plain PIN.
+    bool ok = false;
+    if (stored.length < 64) {
+      ok = stored == pin;
+      if (ok) {
+        // Migrate to hashed PIN
+        await setPin(pin);
+      }
+    } else {
+      // Constant-time comparison for the hash to prevent timing attacks.
+      final hashedPin = _hashPin(pin);
+      ok = _constantTimeEquals(stored, hashedPin);
+    }
+
     if (ok) {
       await resetFailedAttempts();
     } else {
       await incrementFailedAttempts();
     }
     return ok;
+  }
+
+  static bool _constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    int result = 0;
+    for (int i = 0; i < a.length; i++) {
+      result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return result == 0;
   }
 
   static Future<void> removePin() async {

@@ -10,11 +10,12 @@ class Category {
   });
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
+    final map = <String, dynamic>{
       'name': name,
       'icon': icon,
     };
+    if (id != null) map['id'] = id;
+    return map;
   }
 
   factory Category.fromMap(Map<String, dynamic> map) {

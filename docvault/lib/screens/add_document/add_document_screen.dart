@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import '../../models/document.dart';
 import '../../models/category.dart';
 import '../../providers/providers.dart';
@@ -103,8 +104,31 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     final scheme = Theme.of(context).colorScheme;
     final categoriesAsync = ref.watch(categoriesProvider);
 
+    ref.listen(categoriesProvider, (prev, next) {
+      final categories = next.valueOrNull;
+      if (categories != null && categories.isNotEmpty && _categoryId == null && !_isEditing) {
+        // Safe to call setState in listen
+        setState(() {
+          _categoryId = categories.first.id;
+        });
+      }
+    });
+
     final categories = categoriesAsync.valueOrNull ?? [];
     
+    // Also handle initial sync load if it's already there before the listener catches it.
+    // In Riverpod 2+, state might already be present. But we cannot setState during build.
+    // So we use a microtask to schedule it immediately after.
+    if (_categoryId == null && categories.isNotEmpty && !_isEditing) {
+      Future.microtask(() {
+        if (mounted && _categoryId == null) {
+          setState(() {
+            _categoryId = categories.first.id;
+          });
+        }
+      });
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Document' : 'Add Document'),
@@ -362,10 +386,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   }
 
   Widget _categoryGrid(ColorScheme scheme, List<Category> categories) {
-    if (_categoryId == null && categories.isNotEmpty) {
-      // Use the first category by default
-      _categoryId = categories.first.id;
-    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -645,8 +665,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
 
   Future<void> _pickFiles() async {
     if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
-      if (!status.isGranted) return;
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      if (androidInfo.version.sdkInt < 33) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) return;
+      }
     }
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -688,12 +711,14 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     }
 
     setState(() => _isSaving = true);
+    bool overlayShown = false;
     
     if (mounted) {
       ProcessingOverlay.show(
         context, 
         message: _newFiles.isNotEmpty ? 'Encrypting files...' : 'Saving changes...',
       );
+      overlayShown = true;
     }
 
     final startTime = DateTime.now();
@@ -767,12 +792,18 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       }
 
       if (mounted) {
-        if (Navigator.canPop(context)) Navigator.pop(context);
+        if (overlayShown && Navigator.canPop(context)) {
+          Navigator.pop(context);
+          overlayShown = false;
+        }
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        if (Navigator.canPop(context)) Navigator.pop(context);
+        if (overlayShown && Navigator.canPop(context)) {
+          Navigator.pop(context);
+          overlayShown = false;
+        }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
       }
     } finally {
