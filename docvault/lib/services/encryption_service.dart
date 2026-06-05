@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -84,22 +85,11 @@ class EncryptionService {
   }
 
   static Future<Uint8List> decryptFile(String path) async {
-    final data = await File(path).readAsBytes();
-    if (data.isEmpty) throw Exception('Empty file');
-
-    if (_hasMagicHeader(data)) {
-      return _decryptGcm(data, headerLength: _magicHeader.length);
-    }
-
-    if (data[0] == 0x01) {
-      try {
-        return await _decryptGcm(data, headerLength: 1);
-      } catch (_) {
-        if (_legacyIv == null) rethrow;
-      }
-    }
-
-    return _decryptLegacyCbc(data);
+    return await compute(_backgroundDecrypt, _DecryptArgs(
+      path: path,
+      keyBase64: _key.base64,
+      legacyIvBase64: _legacyIv?.base64,
+    ));
   }
 
   static bool _hasMagicHeader(Uint8List data) {
@@ -113,24 +103,25 @@ class EncryptionService {
   static Future<Uint8List> _decryptGcm(
     Uint8List data, {
     required int headerLength,
+    required enc.Key key,
   }) async {
     if (data.length < headerLength + 12) throw Exception('Invalid GCM file');
     final ivBytes = data.sublist(headerLength, headerLength + 12);
     final encBytes = data.sublist(headerLength + 12);
 
     final iv = enc.IV(ivBytes);
-    final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.gcm));
+    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm));
     return Uint8List.fromList(
         encrypter.decryptBytes(enc.Encrypted(encBytes), iv: iv));
   }
 
-  static Uint8List _decryptLegacyCbc(Uint8List data) {
-    if (_legacyIv == null) throw Exception('Legacy IV not found');
+  static Uint8List _decryptLegacyCbc(Uint8List data, enc.Key key, enc.IV? legacyIv) {
+    if (legacyIv == null) throw Exception('Legacy IV not found');
 
-    final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.cbc));
+    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
     try {
       return Uint8List.fromList(
-          encrypter.decryptBytes(enc.Encrypted(data), iv: _legacyIv!));
+          encrypter.decryptBytes(enc.Encrypted(data), iv: legacyIv));
     } catch (e) {
       throw Exception('Decryption failed (legacy fallback also failed): $e');
     }
@@ -160,4 +151,50 @@ class EncryptionService {
     // Clear temp decrypted files
     await clearTempFiles();
   }
+}
+
+class _DecryptArgs {
+  final String path;
+  final String keyBase64;
+  final String? legacyIvBase64;
+
+  _DecryptArgs({
+    required this.path,
+    required this.keyBase64,
+    this.legacyIvBase64,
+  });
+}
+
+Future<Uint8List> _backgroundDecrypt(_DecryptArgs args) async {
+  final data = await File(args.path).readAsBytes();
+  if (data.isEmpty) throw Exception('Empty file');
+
+  final key = enc.Key.fromBase64(args.keyBase64);
+  final legacyIv = args.legacyIvBase64 != null 
+      ? enc.IV.fromBase64(args.legacyIvBase64!) 
+      : null;
+
+  // magicHeader check logic (duplicated for isolate safety or use constant)
+  bool hasMagic(Uint8List d) {
+    const magic = [0x44, 0x56, 0x01];
+    if (d.length < magic.length) return false;
+    for (var i = 0; i < magic.length; i++) {
+      if (d[i] != magic[i]) return false;
+    }
+    return true;
+  }
+
+  if (hasMagic(data)) {
+    return await EncryptionService._decryptGcm(data, headerLength: 3, key: key);
+  }
+
+  if (data[0] == 0x01) {
+    try {
+      return await EncryptionService._decryptGcm(data, headerLength: 1, key: key);
+    } catch (_) {
+      if (legacyIv == null) rethrow;
+    }
+  }
+
+  return EncryptionService._decryptLegacyCbc(data, key, legacyIv);
 }

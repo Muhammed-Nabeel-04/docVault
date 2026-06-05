@@ -116,17 +116,9 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
 
     final categories = categoriesAsync.valueOrNull ?? [];
     
-    // Also handle initial sync load if it's already there before the listener catches it.
-    // In Riverpod 2+, state might already be present. But we cannot setState during build.
-    // So we use a microtask to schedule it immediately after.
-    if (_categoryId == null && categories.isNotEmpty && !_isEditing) {
-      Future.microtask(() {
-        if (mounted && _categoryId == null) {
-          setState(() {
-            _categoryId = categories.first.id;
-          });
-        }
-      });
+    // Fallback: If categories are already available but _categoryId hasn't been set yet
+    if (!_isEditing && _categoryId == null && categories.isNotEmpty) {
+      _categoryId = categories.first.id;
     }
 
     return Scaffold(

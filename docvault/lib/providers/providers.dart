@@ -6,7 +6,7 @@ import '../services/encryption_service.dart';
 
 // ── Database service ──────────────────────────────────────────────────────────
 
-final dbProvider = Provider<DatabaseService>((ref) => DatabaseService());
+final dbProvider = Provider<DatabaseService>((ref) => DatabaseService.instance);
 
 // ── App lock ──────────────────────────────────────────────────────────────────
 

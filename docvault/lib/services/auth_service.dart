@@ -3,9 +3,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:uuid/uuid.dart';
 
 class AuthService {
   static const _pinKey = 'docvault_pin';
+  static const _saltKey = 'docvault_pin_salt';
   static const _bioEnabledKey = 'docvault_use_biometrics';
   static const _autoLockKey = 'docvault_auto_lock_duration';
   static const _failedAttemptsKey = 'docvault_failed_attempts';
@@ -18,9 +20,9 @@ class AuthService {
   );
   static final _auth = LocalAuthentication();
 
-  static String _hashPin(String pin) {
-    // Basic hash with a static salt for the PIN.
-    final bytes = utf8.encode('docvault_salt_\$pin');
+  static String _hashPin(String pin, String salt) {
+    // Dynamic salt for the PIN to prevent pre-computed table attacks.
+    final bytes = utf8.encode('$salt:$pin');
     return sha256.convert(bytes).toString();
   }
 
@@ -30,27 +32,43 @@ class AuthService {
   }
 
   static Future<void> setPin(String pin) async {
-    final hashed = _hashPin(pin);
+    // Generate a new random salt for every new PIN setup
+    final salt = const Uuid().v4();
+    final hashed = _hashPin(pin, salt);
     await _storage.write(key: _pinKey, value: hashed);
+    await _storage.write(key: _saltKey, value: salt);
   }
 
   static Future<bool> verifyPin(String pin) async {
-    final stored = await _storage.read(key: _pinKey);
-    if (stored == null) return false;
+    final storedHash = await _storage.read(key: _pinKey);
+    final salt = await _storage.read(key: _saltKey);
 
-    // Check if the stored PIN is plain-text (migration fallback)
-    // A SHA256 hash is 64 characters long in hex. If it's short, it's probably the old plain PIN.
+    if (storedHash == null) return false;
+
     bool ok = false;
-    if (stored.length < 64) {
-      ok = stored == pin;
+    
+    // Migration logic:
+    // 1. If salt is missing, it's either plain-text or old static-salt hash.
+    if (salt == null) {
+      if (storedHash.length < 64) {
+        // Old plain-text PIN
+        ok = storedHash == pin;
+      } else {
+        // Old static-salt hash
+        final oldStaticHash = sha256.convert(utf8.encode('docvault_salt_\$pin')).toString();
+        // Since the old code used 'docvault_salt_$pin' literal string, 
+        // we replicate that exactly for the check.
+        ok = _constantTimeEquals(storedHash, oldStaticHash);
+      }
+      
       if (ok) {
-        // Migrate to hashed PIN
+        // Migrate to dynamic salt immediately
         await setPin(pin);
       }
     } else {
-      // Constant-time comparison for the hash to prevent timing attacks.
-      final hashedPin = _hashPin(pin);
-      ok = _constantTimeEquals(stored, hashedPin);
+      // Modern dynamic salt check
+      final currentHash = _hashPin(pin, salt);
+      ok = _constantTimeEquals(storedHash, currentHash);
     }
 
     if (ok) {
@@ -72,6 +90,7 @@ class AuthService {
 
   static Future<void> removePin() async {
     await _storage.delete(key: _pinKey);
+    await _storage.delete(key: _saltKey);
     await resetFailedAttempts();
   }
 

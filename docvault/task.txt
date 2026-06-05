@@ -1,0 +1,3 @@
+
+Artificial 1-second minimum delay on save/decrypt
+— add_document_screen.dart and view_document_screen.dart both add await Future.delayed() to pad processing time to at least 1 second. This was likely added for UX feel, but it punishes fast devices. Remove it or make it configurable.

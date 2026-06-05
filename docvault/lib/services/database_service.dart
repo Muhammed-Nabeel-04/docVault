@@ -7,6 +7,11 @@ import '../models/category.dart';
 class DatabaseService {
   static Database? _db;
 
+  // Singleton pattern
+  DatabaseService._internal();
+  static final DatabaseService instance = DatabaseService._internal();
+  factory DatabaseService() => instance;
+
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'docvault.db');
@@ -248,21 +253,49 @@ class DatabaseService {
 
   // ── Read ──────────────────────────────────────────────────────────────────
 
-  Future<List<Document>> getAllDocuments() async {
-    final maps = await _database.query('documents', orderBy: 'createdAt DESC');
-    List<Document> docs = [];
+  Future<List<Document>> _queryWithFiles(String sql, [List<dynamic>? args]) async {
+    final maps = await _database.rawQuery(sql, args);
+    
+    // LinkedHashMap preserves insertion order from the SQL query
+    final Map<int, Document> docsMap = {};
+    
     for (var m in maps) {
-      final files = await _getFilesForDocument(m['id'] as int);
-      docs.add(Document.fromMap(m, files: files));
+      final id = m['id'] as int;
+      if (!docsMap.containsKey(id)) {
+        docsMap[id] = Document.fromMap(m, files: []);
+      }
+      
+      if (m['f_id'] != null) {
+        docsMap[id]!.files.add(DocumentFile(
+          id: m['f_id'] as int,
+          documentId: id,
+          encryptedFilePath: m['encryptedFilePath'] as String,
+          fileExtension: m['fileExtension'] as String,
+          fileSizeBytes: m['fileSizeBytes'] as int,
+        ));
+      }
     }
-    return docs;
+    return docsMap.values.toList();
+  }
+
+  Future<List<Document>> getAllDocuments() async {
+    return _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      ORDER BY d.createdAt DESC
+    ''');
   }
 
   Future<Document?> getDocumentById(int id) async {
-    final maps = await _database.query('documents', where: 'id = ?', whereArgs: [id]);
-    if (maps.isEmpty) return null;
-    final files = await _getFilesForDocument(id);
-    return Document.fromMap(maps.first, files: files);
+    final docs = await _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      WHERE d.id = ?
+    ''', [id]);
+    
+    return docs.isEmpty ? null : docs.first;
   }
 
   Future<List<DocumentFile>> _getFilesForDocument(int docId) async {
@@ -271,35 +304,36 @@ class DatabaseService {
   }
 
   Future<List<Document>> getByCategory(int categoryId) async {
-    final maps = await _database.query('documents', where: 'category = ?', whereArgs: [categoryId], orderBy: 'createdAt DESC');
-    List<Document> docs = [];
-    for (var m in maps) {
-      final files = await _getFilesForDocument(m['id'] as int);
-      docs.add(Document.fromMap(m, files: files));
-    }
-    return docs;
+    return _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      WHERE d.category = ?
+      ORDER BY d.createdAt DESC
+    ''', [categoryId]);
   }
 
   Future<List<Document>> getStarred() async {
-    final maps = await _database.query('documents', where: 'isStarred = 1', orderBy: 'createdAt DESC');
-    List<Document> docs = [];
-    for (var m in maps) {
-      final files = await _getFilesForDocument(m['id'] as int);
-      docs.add(Document.fromMap(m, files: files));
-    }
-    return docs;
+    return _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      WHERE d.isStarred = 1
+      ORDER BY d.createdAt DESC
+    ''');
   }
 
   Future<List<Document>> getExpiringSoon({int withinDays = 30}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final threshold = DateTime.now().add(Duration(days: withinDays)).millisecondsSinceEpoch;
-    final maps = await _database.query('documents', where: 'expiryDate BETWEEN ? AND ?', whereArgs: [now, threshold], orderBy: 'expiryDate ASC');
-    List<Document> docs = [];
-    for (var m in maps) {
-      final files = await _getFilesForDocument(m['id'] as int);
-      docs.add(Document.fromMap(m, files: files));
-    }
-    return docs;
+    
+    return _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      WHERE d.expiryDate BETWEEN ? AND ?
+      ORDER BY d.expiryDate ASC
+    ''', [now, threshold]);
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -307,20 +341,16 @@ class DatabaseService {
   Future<List<Document>> search(String query) async {
     if (query.trim().isEmpty) return getAllDocuments();
     final q = '%${query.trim().toLowerCase()}%';
-    final maps = await _database.rawQuery(
-      '''SELECT * FROM documents
-         WHERE LOWER(name) LIKE ?
-         OR LOWER(note) LIKE ?
-         OR LOWER(tags) LIKE ?
-         ORDER BY createdAt DESC''',
-      [q, q, q],
-    );
-    List<Document> docs = [];
-    for (var m in maps) {
-      final files = await _getFilesForDocument(m['id'] as int);
-      docs.add(Document.fromMap(m, files: files));
-    }
-    return docs;
+    
+    return _queryWithFiles('''
+      SELECT d.*, f.id AS f_id, f.encryptedFilePath, f.fileExtension, f.fileSizeBytes
+      FROM documents d
+      LEFT JOIN document_files f ON f.document_id = d.id
+      WHERE LOWER(d.name) LIKE ?
+         OR LOWER(d.note) LIKE ?
+         OR LOWER(d.tags) LIKE ?
+      ORDER BY d.createdAt DESC
+    ''', [q, q, q]);
   }
 
   // ── Update ────────────────────────────────────────────────────────────────

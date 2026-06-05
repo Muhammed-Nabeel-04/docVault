@@ -164,7 +164,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _launchPrivacyPolicy() async {
-    final Uri url = Uri.parse('https://www.termsfeed.com/live/c6cbb31a-ce91-41e8-be4c-d2249529c6f0');
+    final Uri url = Uri.parse('https://muhammed-nabeel-04.github.io/docVault/');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

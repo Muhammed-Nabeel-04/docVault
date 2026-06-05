@@ -39,7 +39,9 @@ class NotificationService {
 
       // Exact alarm permission check (Android 12+)
       if (await Permission.scheduleExactAlarm.isDenied) {
-        // We could request it, but it takes user to settings.
+        // Request permission - this takes the user to the system settings page
+        // where they must manually enable "Allow setting alarms and reminders"
+        await Permission.scheduleExactAlarm.request();
       }
     }
     return true;
