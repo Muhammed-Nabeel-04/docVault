@@ -72,15 +72,16 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           );
           _decryptedPreviews[file.encryptedFilePath] = decrypted;
         }
-        
+
         final elapsed = DateTime.now().difference(startTime);
-        if (elapsed < const Duration(seconds: 1)) {
-          await Future.delayed(const Duration(seconds: 1) - elapsed);
+        if (elapsed < const Duration(milliseconds: 400)) {
+          await Future.delayed(const Duration(milliseconds: 400) - elapsed);
         }
-        
+
         if (mounted && Navigator.canPop(context)) Navigator.pop(context);
         if (mounted) setState(() {});
       } catch (e) {
+
         if (mounted && Navigator.canPop(context)) Navigator.pop(context);
         debugPrint('Error loading previews: $e');
       }
@@ -779,8 +780,8 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       }
 
       final elapsed = DateTime.now().difference(startTime);
-      if (elapsed < const Duration(seconds: 1)) {
-        await Future.delayed(const Duration(seconds: 1) - elapsed);
+      if (elapsed < const Duration(milliseconds: 400)) {
+        await Future.delayed(const Duration(milliseconds: 400) - elapsed);
       }
 
       if (mounted) {

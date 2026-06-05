@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/document.dart';
@@ -11,6 +12,20 @@ class DatabaseService {
   DatabaseService._internal();
   static final DatabaseService instance = DatabaseService._internal();
   factory DatabaseService() => instance;
+
+  /// Injects an already-open database (e.g., in-memory SQLite) for unit tests.
+  @visibleForTesting
+  static Future<void> initForTesting(Database db) async {
+    _db = db;
+    // Ensure schema is created in the test database
+    await _createTables(db);
+    await _insertDefaultCategories(db);
+  }
+
+  static Future<void> close() async {
+    await _db?.close();
+    _db = null;
+  }
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
@@ -163,6 +178,10 @@ class DatabaseService {
   }
 
   static Future<void> _insertDefaultCategories(Database db) async {
+    // Prevent duplicate categories if the table already has data (e.g. during migration)
+    final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM categories'));
+    if (count != null && count > 0) return;
+
     final defaults = [
       {'name': 'Identity', 'icon': '🪪'},
       {'name': 'Vehicle', 'icon': '🚗'},
@@ -296,11 +315,6 @@ class DatabaseService {
     ''', [id]);
     
     return docs.isEmpty ? null : docs.first;
-  }
-
-  Future<List<DocumentFile>> _getFilesForDocument(int docId) async {
-    final maps = await _database.query('document_files', where: 'document_id = ?', whereArgs: [docId]);
-    return maps.map((m) => DocumentFile.fromMap(m)).toList();
   }
 
   Future<List<Document>> getByCategory(int categoryId) async {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -13,11 +14,16 @@ class AuthService {
   static const _failedAttemptsKey = 'docvault_failed_attempts';
   static const _lockoutUntilKey = 'docvault_lockout_until';
 
-  static const _storage = FlutterSecureStorage(
+  static FlutterSecureStorage _storage = const FlutterSecureStorage(
     aOptions: AndroidOptions(
       resetOnError: false,
     ),
   );
+
+  @visibleForTesting
+  static void overrideStorageForTesting(FlutterSecureStorage storage) {
+    _storage = storage;
+  }
   static final _auth = LocalAuthentication();
 
   static String _hashPin(String pin, String salt) {

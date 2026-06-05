@@ -1,3 +1,3 @@
 
-Artificial 1-second minimum delay on save/decrypt
-— add_document_screen.dart and view_document_screen.dart both add await Future.delayed() to pad processing time to at least 1 second. This was likely added for UX feel, but it punishes fast devices. Remove it or make it configurable.
+PIN is set via a plain TextField dialog, not a proper PIN pad
+— settings_screen.dart shows a text field for entering the PIN during setup. The lock screen has a beautiful custom numpad, but setup uses a keyboard. Inconsistent and exposes the PIN to third-party keyboards. Reuse the numpad widget for PIN setup.

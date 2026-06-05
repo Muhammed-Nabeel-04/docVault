@@ -51,15 +51,19 @@ class _ViewDocumentScreenState extends ConsumerState<ViewDocumentScreen> {
       final file = widget.document.files[_currentIndex];
       ProcessingOverlay.show(context, message: 'Decrypting...', isDecryption: true);
       
+      final startTime = DateTime.now();
+      
       try {
-        final results = await Future.wait([
-          EncryptionService.decryptToTemp(
-            file.encryptedFilePath,
-            file.fileExtension,
-          ),
-          Future.delayed(const Duration(seconds: 1)),
-        ]);
-        final f = results[0] as File;
+        final f = await EncryptionService.decryptToTemp(
+          file.encryptedFilePath,
+          file.fileExtension,
+        );
+        
+        final elapsed = DateTime.now().difference(startTime);
+        if (elapsed < const Duration(milliseconds: 400)) {
+          await Future.delayed(const Duration(milliseconds: 400) - elapsed);
+        }
+
         if (mounted) {
           if (Navigator.canPop(context)) Navigator.pop(context);
           setState(() {

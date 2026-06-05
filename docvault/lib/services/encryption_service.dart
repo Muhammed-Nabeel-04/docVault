@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -18,6 +17,19 @@ class EncryptionService {
 
   static late enc.Key _key;
   static enc.IV? _legacyIv;
+
+  /// Seeds the service with a known key for unit tests.
+  /// Never call this in production code.
+  @visibleForTesting
+  static void initForTesting(enc.Key key, {enc.IV? legacyIv}) {
+    _key = key;
+    _legacyIv = legacyIv;
+  }
+
+  /// Overrides the directory where encrypted files are written.
+  /// Used by unit tests only — keeps test output out of the app documents dir.
+  @visibleForTesting
+  static Directory? encDirOverride;
 
   static Future<void> init() async {
     String? keyB64;
@@ -66,9 +78,15 @@ class EncryptionService {
     final encrypter = enc.Encrypter(enc.AES(_key, mode: enc.AESMode.gcm));
     final encrypted = encrypter.encryptBytes(bytes, iv: iv);
 
-    final dir = await getApplicationDocumentsDirectory();
-    final encDir = Directory('${dir.path}/enc');
-    if (!await encDir.exists()) await encDir.create(recursive: true);
+    late Directory encDir;
+    if (encDirOverride != null) {
+      encDir = encDirOverride!;
+      if (!await encDir.exists()) await encDir.create(recursive: true);
+    } else {
+      final dir = await getApplicationDocumentsDirectory();
+      encDir = Directory('${dir.path}/enc');
+      if (!await encDir.exists()) await encDir.create(recursive: true);
+    }
 
     final file = File('${encDir.path}/${const Uuid().v4()}.enc');
 
@@ -90,14 +108,6 @@ class EncryptionService {
       keyBase64: _key.base64,
       legacyIvBase64: _legacyIv?.base64,
     ));
-  }
-
-  static bool _hasMagicHeader(Uint8List data) {
-    if (data.length < _magicHeader.length) return false;
-    for (var i = 0; i < _magicHeader.length; i++) {
-      if (data[i] != _magicHeader[i]) return false;
-    }
-    return true;
   }
 
   static Future<Uint8List> _decryptGcm(
