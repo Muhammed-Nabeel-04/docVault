@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:syncfusion_flutter_core/core.dart';
 import 'package:docvault/services/database_service.dart';
 import 'package:docvault/services/encryption_service.dart';
 import 'package:docvault/services/notification_service.dart';
@@ -11,14 +10,6 @@ import 'package:docvault/providers/providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // pdfViewer--licence
-  const String syncfusionKey = String.fromEnvironment('SYNCFUSION_LICENSE_KEY');
-  if (syncfusionKey.isNotEmpty) {
-    SyncfusionLicense.registerLicense(syncfusionKey);
-  } else {
-    debugPrint('Warning: Syncfusion license key is missing. Set it via --dart-define=SYNCFUSION_LICENSE_KEY=your_key');
-  }
 
   try {
     await DatabaseService.init();

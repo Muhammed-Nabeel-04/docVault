@@ -1,0 +1,36 @@
+=== GOOGLE PLAY STORE LISTING ASSETS ===
+
+--- 1. SHORT DESCRIPTION (Max 80 chars) ---
+Secure, offline document vault with AES encryption. No cloud, total privacy.
+
+--- 2. FULL DESCRIPTION (Max 4000 chars) ---
+DocVault 🛡️ - Your Ultimate Offline Document Safe
+
+DocVault is a high-security, offline-first document vault designed for users who prioritize privacy. Keep your sensitive documents—such as IDs, contracts, passports, and medical records—encrypted and accessible only to you, with absolutely zero cloud dependency. 
+
+Your data belongs to you. No accounts. No subscriptions. No data mining. 
+
+Key Features:
+
+🔒 Military-Grade Encryption
+All files are encrypted locally on your device using industry-standard AES-GCM encryption. Your data is locked down and unreadable to anyone but you.
+
+📱 Biometric Authentication & Secure PIN
+Access your vault instantly and securely using Fingerprint or Face ID. A highly secure, mathematically hashed PIN system serves as your unbreakable fallback.
+
+📂 100% Offline-First Privacy
+DocVault does not have servers, and your data never leaves your device. Everything is processed and stored locally for total privacy by design.
+
+📑 Organize with Ease
+Attach multiple pages or related files to a single document entry. Sort your files using custom tags and categories so you can always find what you need instantly.
+
+🕒 Smart Expiry Reminders
+Never miss a renewal date again. Set expiry dates on important documents (like passports or insurance policies) and receive local notifications before they expire.
+
+🌓 Beautiful Adaptive UI
+Enjoy a clean, modern interface that respects your system's dark and light modes, making document management a visually pleasing experience.
+
+---
+
+Security Notice:
+DocVault takes your security seriously. Because your data is encrypted offline, we have no way to recover your files if you lose your PIN and biometric access is unavailable. Please ensure you remember your PIN!

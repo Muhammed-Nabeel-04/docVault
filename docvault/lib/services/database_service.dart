@@ -315,28 +315,32 @@ class DatabaseService {
   // ── Read ──────────────────────────────────────────────────────────────────
 
   Future<List<Document>> _queryWithFiles(String sql, [List<dynamic>? args]) async {
-    final maps = await _database.rawQuery(sql, args);
+    final rows = await _database.rawQuery(sql, args);
     
-    // LinkedHashMap preserves insertion order from the SQL query
-    final Map<int, Document> docsMap = {};
+    // Pass 1: Group raw maps and collect files
+    // LinkedHashMap (default {}) preserves insertion order from the SQL query
+    final Map<int, Map<String, dynamic>> docMaps = {};
+    final Map<int, List<DocumentFile>> fileMap = {};
     
-    for (var m in maps) {
-      final id = m['id'] as int;
-      if (!docsMap.containsKey(id)) {
-        docsMap[id] = Document.fromMap(m, files: []);
-      }
+    for (var row in rows) {
+      final id = row['id'] as int;
+      docMaps[id] ??= row;
       
-      if (m['f_id'] != null) {
-        docsMap[id]!.files.add(DocumentFile(
-          id: m['f_id'] as int,
+      if (row['f_id'] != null) {
+        fileMap.putIfAbsent(id, () => []).add(DocumentFile(
+          id: row['f_id'] as int,
           documentId: id,
-          encryptedFilePath: m['encryptedFilePath'] as String,
-          fileExtension: m['fileExtension'] as String,
-          fileSizeBytes: m['fileSizeBytes'] as int,
+          encryptedFilePath: row['encryptedFilePath'] as String,
+          fileExtension: row['fileExtension'] as String,
+          fileSizeBytes: row['fileSizeBytes'] as int,
         ));
       }
     }
-    return docsMap.values.toList();
+    
+    // Pass 2: Construct Documents with their complete file lists
+    return docMaps.entries.map((e) => 
+      Document.fromMap(e.value, files: fileMap[e.key] ?? [])
+    ).toList();
   }
 
   Future<List<Document>> getAllDocuments() async {
