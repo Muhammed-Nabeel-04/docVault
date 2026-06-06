@@ -382,17 +382,26 @@ void main() {
       expect(updated.icon, equals('✏️'));
     });
 
-    test('cannot delete the last remaining category', () async {
-      // Delete all but one category.
+    test('cannot delete the "Other" category', () async {
       final cats = await db.getAllCategories();
-      for (final cat in cats.skip(1)) {
-        await db.deleteCategory(cat.id!);
-      }
-      final before = (await db.getAllCategories()).length;
-      await db.deleteCategory(cats.first.id!); // attempt to delete the last
-      final after = (await db.getAllCategories()).length;
-      expect(after, equals(before),
-          reason: 'Last category must never be deleted');
+      final other = cats.firstWhere((c) => c.name == 'Other');
+      
+      expect(
+        () => db.deleteCategory(other.id!),
+        throwsA(anything),
+      );
+    });
+
+    test('can reorder categories', () async {
+      final cats = await db.getAllCategories();
+      if (cats.length < 2) return;
+
+      final reversed = cats.reversed.toList();
+      await db.reorderCategories(reversed);
+      
+      final updated = await db.getAllCategories();
+      expect(updated.first.name, equals(reversed.first.name));
+      expect(updated.last.name, equals(reversed.last.name));
     });
 
     test('deleting a category reassigns its documents to Other', () async {
@@ -451,9 +460,9 @@ void main() {
       ''', ['V1 Legacy Doc', 'This was created in v1', 0, now, now, '/old/path.enc', 'pdf', 1234]);
       await dbV1.close();
 
-      // 3. Re-open with v3 targets to trigger migration
+      // 3. Re-open with v4 targets to trigger migration
       final upgradedDb = await factory.openDatabase(dbPath, options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onUpgrade: (db, oldVersion, newVersion) async {
           // Re-running the EXACT logic from DatabaseService.dart
           if (oldVersion < 2) {
@@ -490,6 +499,13 @@ void main() {
             await db.execute('INSERT INTO documents_new (id, name, note, category, issueDate, expiryDate, createdAt, updatedAt, isStarred, tags) SELECT id, name, note, category, issueDate, expiryDate, createdAt, updatedAt, isStarred, tags FROM documents');
             await db.execute('DROP TABLE documents');
             await db.execute('ALTER TABLE documents_new RENAME TO documents');
+          }
+          if (oldVersion < 4) {
+            await db.execute('ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+            final cats = await db.query('categories', orderBy: 'id');
+            for (int i = 0; i < cats.length; i++) {
+              await db.update('categories', {'sort_order': i}, where: 'id = ?', whereArgs: [cats[i]['id']]);
+            }
           }
         },
       ));

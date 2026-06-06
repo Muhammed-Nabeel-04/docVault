@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docvault/providers/providers.dart';
 import 'package:docvault/services/auth_service.dart';
+import 'package:docvault/widgets/pin_keypad.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key});
@@ -71,7 +72,16 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   Future<void> _tryBio() async {
     if (_lockoutUntil != null) return;
     final ok = await AuthService.authenticateWithBiometrics();
-    if (ok && mounted) _unlock();
+    if (ok && mounted) {
+      _unlock();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Biometric authentication failed, use your PIN.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _unlock() async {
@@ -207,7 +217,13 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 const SizedBox(height: 24),
 
                 // Keypad
-                _buildKeypad(scheme),
+                PinKeypad(
+                  onKey: _onKey,
+                  onDelete: _onDelete,
+                  onBio: _tryBio,
+                  showBio: _bioAvailable,
+                  isLocked: _lockoutUntil != null,
+                ),
 
                 const Spacer(),
                 const SizedBox(height: 20),
@@ -216,69 +232,6 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildKeypad(ColorScheme scheme) {
-    final keys = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-      ['BIO', '0', '⌫'],
-    ];
-
-    final isLocked = _lockoutUntil != null;
-
-    return Column(
-      children: keys.map((row) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: row.map((key) {
-              if (key == 'BIO' && !_bioAvailable) {
-                return const SizedBox(width: 80);
-              }
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  width: 72,
-                  height: 72,
-                  child: TextButton(
-                    style: TextButton.styleFrom(
-                      shape: const CircleBorder(),
-                      backgroundColor: key == 'BIO' || key == '⌫'
-                          ? Colors.transparent
-                          : scheme.surfaceContainerHighest.withValues(alpha: isLocked ? 0.2 : 0.5),
-                    ),
-                    onPressed: isLocked ? null : () {
-                      if (key == 'BIO') {
-                        _tryBio();
-                      } else if (key == '⌫') {
-                        _onDelete();
-                      } else {
-                        _onKey(key);
-                      }
-                    },
-                    child: key == 'BIO'
-                        ? Icon(Icons.fingerprint_rounded,
-                            size: 32, color: isLocked ? scheme.outline : scheme.primary)
-                        : Text(
-                            key,
-                            style: TextStyle(
-                              fontSize: key == '⌫' ? 22 : 28,
-                              color: isLocked ? scheme.outline : scheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        );
-      }).toList(),
     );
   }
 }

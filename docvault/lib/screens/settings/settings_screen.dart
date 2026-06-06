@@ -5,6 +5,7 @@ import 'package:docvault/providers/providers.dart';
 import 'package:docvault/services/auth_service.dart';
 import 'package:docvault/services/encryption_service.dart';
 import 'package:docvault/models/category.dart';
+import 'package:docvault/widgets/pin_keypad.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -218,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _setupPin() async {
-    final pin = await _pinDialog('Set PIN');
+    final pin = await _showPinSetupSheet();
     if (pin != null && pin.length == 4) {
       await AuthService.setPin(pin);
       setState(() => _hasPin = true);
@@ -230,6 +231,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<String?> _showPinSetupSheet() async {
+    return await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => const _PinEntrySheet(isSetup: true),
+    );
+  }
+
   Future<void> _removePin() async {
     await AuthService.removePin();
     await AuthService.setBiometricEnabled(false);
@@ -237,32 +251,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _hasPin = false;
       _bioEnabled = false;
     });
-  }
-
-  Future<String?> _pinDialog(String title) async {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          maxLength: 4,
-          obscureText: true,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '4-digit PIN'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('Set')),
-        ],
-      ),
-    );
   }
 
   void _confirmClearAll() async {
@@ -298,7 +286,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!verified) {
         // Fallback to PIN if bio fails or is disabled
         if (!mounted) return;
-        final pin = await _verifyPinDialog();
+        final pin = await _showPinVerifySheet();
         if (pin != null) {
           verified = await AuthService.verifyPin(pin);
           if (!verified && mounted) {
@@ -350,38 +338,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<String?> _verifyPinDialog() async {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
+  Future<String?> _showPinVerifySheet() async {
+    return await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Verify PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Enter your 4-digit PIN to confirm deletion.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: ctrl,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              obscureText: true,
-              autofocus: true,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, letterSpacing: 16),
-              decoration: const InputDecoration(counterText: ''),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('Confirm')),
-        ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      builder: (ctx) => const _PinEntrySheet(isSetup: false),
     );
   }
 
@@ -512,9 +478,18 @@ class _CategoryManagerSheet extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                const Text(
-                  'Manage Categories',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Manage Categories',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Drag ⠿ to reorder',
+                      style: TextStyle(fontSize: 12, color: scheme.outline),
+                    ),
+                  ],
                 ),
                 const Spacer(),
                 IconButton.filledTonal(
@@ -527,30 +502,50 @@ class _CategoryManagerSheet extends ConsumerWidget {
           const SizedBox(height: 12),
           Expanded(
             child: categoriesAsync.when(
-              data: (categories) => ListView.builder(
-                controller: scrollController,
+              data: (categories) => ReorderableListView.builder(
+                scrollController: scrollController,
+                physics: const ClampingScrollPhysics(), // Fixes conflict with DraggableScrollableSheet
                 itemCount: categories.length,
                 padding: const EdgeInsets.only(bottom: 40),
+                onReorder: (oldIndex, newIndex) {
+                  if (newIndex > oldIndex) newIndex--;
+                  final list = List<Category>.from(categories);
+                  final item = list.removeAt(oldIndex);
+                  list.insert(newIndex, item);
+                  ref.read(categoriesProvider.notifier).reorderCategories(list);
+                },
                 itemBuilder: (ctx, i) {
                   final cat = categories[i];
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: scheme.primaryContainer.withValues(alpha: 0.5),
-                      child: Text(cat.icon, style: const TextStyle(fontSize: 18)),
-                    ),
-                    title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => _showAddCategoryDialog(context, ref, editCategory: cat),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
-                          onPressed: () => _confirmDeleteCategory(context, ref, cat, categories.length),
-                        ),
-                      ],
+                  return ReorderableDragStartListener(
+                    key: ValueKey(cat.id),
+                    index: i,
+                    child: ListTile(
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.drag_indicator_rounded, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          CircleAvatar(
+                            backgroundColor: scheme.primaryContainer.withValues(alpha: 0.5),
+                            child: Text(cat.icon, style: const TextStyle(fontSize: 18)),
+                          ),
+                        ],
+                      ),
+                      title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 20),
+                            onPressed: () => _showAddCategoryDialog(context, ref, editCategory: cat),
+                          ),
+                          if (cat.name != 'Other')
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+                              onPressed: () => _confirmDeleteCategory(context, ref, cat, categories.length),
+                            ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -577,9 +572,13 @@ class _CategoryManagerSheet extends ConsumerWidget {
           children: [
             TextField(
               controller: iconCtrl,
-              decoration: const InputDecoration(labelText: 'Icon (Emoji)'),
+              decoration: const InputDecoration(
+                labelText: 'Icon (Single Emoji)',
+                hintText: 'e.g. 📄',
+              ),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 24),
+              maxLength: 2, // Emojis can be multiple chars but usually 1-2 graphemes
             ),
             const SizedBox(height: 12),
             TextField(
@@ -594,17 +593,30 @@ class _CategoryManagerSheet extends ConsumerWidget {
           TextButton(
             onPressed: () {
               final name = nameCtrl.text.trim();
-              final icon = iconCtrl.text.trim();
-              if (name.isNotEmpty && icon.isNotEmpty) {
-                if (editCategory == null) {
-                  ref.read(categoriesProvider.notifier).addCategory(name, icon);
-                } else {
-                  ref.read(categoriesProvider.notifier).updateCategory(
-                        editCategory.copyWith(name: name, icon: icon),
-                      );
-                }
-                Navigator.pop(ctx);
+              final iconText = iconCtrl.text.trim();
+              
+              if (name.isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Please enter a name')),
+                );
+                return;
               }
+
+              if (iconText.characters.length != 1) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Please enter exactly one emoji')),
+                );
+                return;
+              }
+
+              if (editCategory == null) {
+                ref.read(categoriesProvider.notifier).addCategory(name, iconText);
+              } else {
+                ref.read(categoriesProvider.notifier).updateCategory(
+                      editCategory.copyWith(name: name, icon: iconText),
+                    );
+              }
+              Navigator.pop(ctx);
             },
             child: Text(editCategory == null ? 'Add' : 'Update'),
           ),
@@ -614,18 +626,25 @@ class _CategoryManagerSheet extends ConsumerWidget {
   }
 
   void _confirmDeleteCategory(BuildContext context, WidgetRef ref, Category category, int count) {
-    if (count <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cannot delete the last category')),
-      );
-      return;
-    }
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Category?'),
-        content: Text('Documents in "${category.name}" will be moved to "Other".'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Documents in "${category.name}" will be moved to "Other" or become uncategorized.'),
+            if (count <= 1)
+              const Padding(
+                padding: EdgeInsets.only(top: 8.0),
+                child: Text(
+                  'Warning: This is your last category.',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
@@ -634,6 +653,130 @@ class _CategoryManagerSheet extends ConsumerWidget {
               Navigator.pop(ctx);
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PinEntrySheet extends StatefulWidget {
+  final bool isSetup;
+
+  const _PinEntrySheet({required this.isSetup});
+
+  @override
+  State<_PinEntrySheet> createState() => _PinEntrySheetState();
+}
+
+class _PinEntrySheetState extends State<_PinEntrySheet> {
+  String _pin = '';
+  String _firstPin = '';
+  bool _isConfirming = false;
+  String? _error;
+
+  void _onKey(String key) {
+    if (_pin.length >= 4) return;
+    setState(() {
+      _pin += key;
+      _error = null;
+    });
+
+    if (_pin.length == 4) {
+      if (widget.isSetup) {
+        if (!_isConfirming) {
+          setState(() {
+            _firstPin = _pin;
+            _pin = '';
+            _isConfirming = true;
+          });
+        } else {
+          if (_pin == _firstPin) {
+            Navigator.pop(context, _pin);
+          } else {
+            setState(() {
+              _pin = '';
+              _error = 'PINs do not match. Try again.';
+            });
+          }
+        }
+      } else {
+        Navigator.pop(context, _pin);
+      }
+    }
+  }
+
+  void _onDelete() {
+    if (_pin.isEmpty) return;
+    setState(() => _pin = _pin.substring(0, _pin.length - 1));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    String title;
+    if (widget.isSetup) {
+      title = _isConfirming ? 'Confirm your PIN' : 'Set your 4-digit PIN';
+    } else {
+      title = 'Verify PIN';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Your PIN stays on this device.',
+              style: TextStyle(color: Colors.grey, fontSize: 13)),
+          const SizedBox(height: 32),
+
+          // Dots
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(4, (i) {
+              final filled = i < _pin.length;
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: filled ? scheme.primary : Colors.transparent,
+                  border: Border.all(
+                    color: filled ? scheme.primary : scheme.outline,
+                    width: 2,
+                  ),
+                ),
+              );
+            }),
+          ),
+
+          // Error
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 20,
+            child: _error != null
+                ? Text(_error!,
+                    style: TextStyle(color: scheme.error, fontSize: 13))
+                : null,
+          ),
+          const SizedBox(height: 24),
+
+          // Keypad
+          PinKeypad(
+            onKey: _onKey,
+            onDelete: _onDelete,
+          ),
+
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
           ),
         ],
       ),

@@ -65,7 +65,7 @@ class DatabaseService {
   static Future<Database> _openAndMigrate(String path) async {
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await _createTables(db);
         await _insertDefaultCategories(db);
@@ -76,7 +76,8 @@ class DatabaseService {
             CREATE TABLE IF NOT EXISTS categories (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL,
-              icon TEXT NOT NULL
+              icon TEXT NOT NULL,
+              sort_order INTEGER NOT NULL DEFAULT 0
             )
           ''');
           await _insertDefaultCategories(db);
@@ -137,6 +138,14 @@ class DatabaseService {
           await db.execute('DROP TABLE documents');
           await db.execute('ALTER TABLE documents_new RENAME TO documents');
         }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+          // Update default categories to have sequential sort orders
+          final cats = await db.query('categories', orderBy: 'id');
+          for (int i = 0; i < cats.length; i++) {
+            await db.update('categories', {'sort_order': i}, where: 'id = ?', whereArgs: [cats[i]['id']]);
+          }
+        }
       },
     );
   }
@@ -146,7 +155,8 @@ class DatabaseService {
       CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        icon TEXT NOT NULL
+        icon TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -183,13 +193,13 @@ class DatabaseService {
     if (count != null && count > 0) return;
 
     final defaults = [
-      {'name': 'Identity', 'icon': '🪪'},
-      {'name': 'Vehicle', 'icon': '🚗'},
-      {'name': 'Medical', 'icon': '🏥'},
-      {'name': 'Education', 'icon': '🎓'},
-      {'name': 'Finance', 'icon': '💳'},
-      {'name': 'Property', 'icon': '🏠'},
-      {'name': 'Other', 'icon': '📄'},
+      {'name': 'Identity', 'icon': '🪪', 'sort_order': 0},
+      {'name': 'Vehicle', 'icon': '🚗', 'sort_order': 1},
+      {'name': 'Medical', 'icon': '🏥', 'sort_order': 2},
+      {'name': 'Education', 'icon': '🎓', 'sort_order': 3},
+      {'name': 'Finance', 'icon': '💳', 'sort_order': 4},
+      {'name': 'Property', 'icon': '🏠', 'sort_order': 5},
+      {'name': 'Other', 'icon': '📄', 'sort_order': 6},
     ];
 
     for (var cat in defaults) {
@@ -205,12 +215,15 @@ class DatabaseService {
   // ── Categories ────────────────────────────────────────────────────────────
 
   Future<List<Category>> getAllCategories() async {
-    final maps = await _database.query('categories', orderBy: 'id ASC');
+    final maps = await _database.query('categories', orderBy: 'sort_order ASC');
     return maps.map((m) => Category.fromMap(m)).toList();
   }
 
   Future<int> addCategory(Category category) async {
-    return await _database.insert('categories', category.toMap());
+    // Auto-set sort_order to end of list
+    final maps = await _database.query('categories', columns: ['MAX(sort_order) as max_order']);
+    final maxOrder = maps.first['max_order'] as int? ?? -1;
+    return await _database.insert('categories', category.copyWith(sortOrder: maxOrder + 1).toMap());
   }
 
   Future<void> updateCategory(Category category) async {
@@ -224,28 +237,44 @@ class DatabaseService {
 
   Future<void> deleteCategory(int id) async {
     final categories = await getAllCategories();
-    if (categories.length <= 1) return;
-
-    final others = await _database.query(
-      'categories',
-      where: 'name = ?',
-      whereArgs: ['Other'],
-      limit: 1,
-    );
+    final target = categories.firstWhere((c) => c.id == id);
     
-    int? otherId;
-    if (others.isNotEmpty) {
-      otherId = others.first['id'] as int;
+    // Protect "Other" from deletion
+    if (target.name == 'Other') {
+      throw Exception('The "Other" category cannot be deleted as it is used for unassigned documents.');
     }
 
-    if (otherId == null || otherId == id) {
-      otherId = categories.firstWhere((c) => c.id != id).id;
-    }
+    // Reassign documents to another category if available
+    if (categories.length > 1) {
+      final others = await _database.query(
+        'categories',
+        where: 'name = ?',
+        whereArgs: ['Other'],
+        limit: 1,
+      );
+      
+      int? otherId;
+      if (others.isNotEmpty) {
+        otherId = others.first['id'] as int;
+      }
 
-    if (otherId != null) {
+      // If "Other" doesn't exist or we are deleting it (shouldn't happen now), pick first alternative
+      if (otherId == null || otherId == id) {
+        otherId = categories.firstWhere((c) => c.id != id).id;
+      }
+
+      if (otherId != null) {
+        await _database.update(
+          'documents',
+          {'category': otherId},
+          where: 'category = ?',
+          whereArgs: [id],
+        );
+      }
+    } else {
       await _database.update(
         'documents',
-        {'category': otherId},
+        {'category': null},
         where: 'category = ?',
         whereArgs: [id],
       );
@@ -256,6 +285,19 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<void> reorderCategories(List<Category> categories) async {
+    final batch = _database.batch();
+    for (int i = 0; i < categories.length; i++) {
+      batch.update(
+        'categories',
+        {'sort_order': i},
+        where: 'id = ?',
+        whereArgs: [categories[i].id],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   // ── Create ────────────────────────────────────────────────────────────────

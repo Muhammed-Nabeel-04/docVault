@@ -62,6 +62,18 @@ class CategoriesNotifier
     await _db.deleteCategory(id);
     await load();
   }
+
+  Future<void> reorderCategories(List<Category> categories) async {
+    // Optimistic update
+    state = AsyncValue.data(categories);
+    try {
+      await _db.reorderCategories(categories);
+    } catch (e, st) {
+      // Revert on error
+      await load();
+      state = AsyncValue.error(e, st);
+    }
+  }
 }
 
 // ── Selected category filter ──────────────────────────────────────────────────
