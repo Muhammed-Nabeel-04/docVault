@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -22,7 +23,8 @@ class NotificationService {
       };
       final identifier = legacyNames[tzInfo.identifier] ?? tzInfo.identifier;
       tz.setLocalLocation(tz.getLocation(identifier));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Timezone lookup failed: $e. Falling back to UTC.');
       tz.setLocalLocation(tz.UTC);
     }
 

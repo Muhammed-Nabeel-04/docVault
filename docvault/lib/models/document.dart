@@ -69,14 +69,15 @@ class Document {
     required this.name,
     this.note,
     required this.categoryId,
-    this.files = const [],
+    List<DocumentFile>? files,
     this.issueDate,
     this.expiryDate,
     required this.createdAt,
     required this.updatedAt,
     this.isStarred = false,
-    this.tags = const [],
-  });
+    List<String>? tags,
+  })  : files = files ?? [],
+        tags = tags ?? [];
 
   Document copyWith({
     int? id,
@@ -122,13 +123,13 @@ class Document {
     return map;
   }
 
-  factory Document.fromMap(Map<String, dynamic> map, {List<DocumentFile> files = const []}) {
+  factory Document.fromMap(Map<String, dynamic> map, {List<DocumentFile>? files}) {
     return Document(
       id: map['id'] as int?,
       name: map['name'] as String,
       note: map['note'] as String?,
       categoryId: map['category'] as int,
-      files: files,
+      files: files ?? [],
       issueDate: map['issueDate'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['issueDate'] as int)
           : null,
