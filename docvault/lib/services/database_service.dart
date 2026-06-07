@@ -288,13 +288,18 @@ class DatabaseService {
   }
 
   Future<void> reorderCategories(List<Category> categories) async {
+    // Pull "Other" out and force it to the end
+    final others = categories.where((c) => c.name == 'Other').toList();
+    final rest = categories.where((c) => c.name != 'Other').toList();
+    final ordered = [...rest, ...others];
+
     final batch = _database.batch();
-    for (int i = 0; i < categories.length; i++) {
+    for (int i = 0; i < ordered.length; i++) {
       batch.update(
         'categories',
         {'sort_order': i},
         where: 'id = ?',
-        whereArgs: [categories[i].id],
+        whereArgs: [ordered[i].id],
       );
     }
     await batch.commit(noResult: true);

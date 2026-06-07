@@ -10,7 +10,7 @@ final dbProvider = Provider<DatabaseService>((ref) => DatabaseService.instance);
 
 // ── App lock ──────────────────────────────────────────────────────────────────
 
-final isUnlockedProvider = StateProvider<bool>((ref) => true);
+final isUnlockedProvider = StateProvider<bool>((ref) => false);
 
 // ── Search query ──────────────────────────────────────────────────────────────
 
@@ -30,8 +30,7 @@ final categoriesProvider =
   (ref) => CategoriesNotifier(ref.watch(dbProvider)),
 );
 
-class CategoriesNotifier
-    extends StateNotifier<AsyncValue<List<Category>>> {
+class CategoriesNotifier extends StateNotifier<AsyncValue<List<Category>>> {
   final DatabaseService _db;
 
   CategoriesNotifier(this._db) : super(const AsyncValue.loading()) {
@@ -64,10 +63,15 @@ class CategoriesNotifier
   }
 
   Future<void> reorderCategories(List<Category> categories) async {
+    // Pull "Other" out and force it to the end for optimistic snap
+    final others = categories.where((c) => c.name == 'Other').toList();
+    final rest = categories.where((c) => c.name != 'Other').toList();
+    final ordered = [...rest, ...others];
+
     // Optimistic update
-    state = AsyncValue.data(categories);
+    state = AsyncValue.data(ordered);
     try {
-      await _db.reorderCategories(categories);
+      await _db.reorderCategories(ordered);
     } catch (e, st) {
       // Revert on error
       await load();
@@ -93,12 +97,12 @@ final documentsProvider =
   },
 );
 
-class DocumentsNotifier
-    extends StateNotifier<AsyncValue<List<Document>>> {
+class DocumentsNotifier extends StateNotifier<AsyncValue<List<Document>>> {
   final DatabaseService _db;
   final int? categoryId;
 
-  DocumentsNotifier(this._db, this.categoryId) : super(const AsyncValue.loading()) {
+  DocumentsNotifier(this._db, this.categoryId)
+      : super(const AsyncValue.loading()) {
     load();
   }
 
@@ -131,10 +135,10 @@ class DocumentsNotifier
   Future<void> deleteDocument(int id) async {
     final doc = await _db.getDocumentById(id);
     if (doc != null) {
+      await _db.deleteDocument(id);
       for (var file in doc.files) {
         await EncryptionService.deleteEncryptedFile(file.encryptedFilePath);
       }
-      await _db.deleteDocument(id);
       await load();
     }
   }
@@ -142,8 +146,7 @@ class DocumentsNotifier
 
 // ── Expiring soon ─────────────────────────────────────────────────────────────
 
-final expiringSoonProvider =
-    FutureProvider<List<Document>>((ref) async {
+final expiringSoonProvider = FutureProvider<List<Document>>((ref) async {
   final db = ref.watch(dbProvider);
   ref.watch(documentsProvider); // refresh when documents change
   return db.getExpiringSoon(withinDays: 30);

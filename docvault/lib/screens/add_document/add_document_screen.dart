@@ -17,8 +17,7 @@ class AddDocumentScreen extends ConsumerStatefulWidget {
   const AddDocumentScreen({super.key, this.existingDocument});
 
   @override
-  ConsumerState<AddDocumentScreen> createState() =>
-      _AddDocumentScreenState();
+  ConsumerState<AddDocumentScreen> createState() => _AddDocumentScreenState();
 }
 
 class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
@@ -35,7 +34,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   List<DocumentFile> _existingFiles = [];
   final List<File> _newFiles = [];
   final List<DocumentFile> _filesToDelete = [];
-  final Map<String, File> _decryptedPreviews = {}; // Map of encryptedPath -> decryptedTempFile
+  final Map<String, File> _decryptedPreviews = {}; // encryptedPath -> tempFile
 
   bool _isSaving = false;
   bool get _isEditing => widget.existingDocument != null;
@@ -59,33 +58,21 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   Future<void> _loadPreviews() async {
     if (_existingFiles.isEmpty) return;
     
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      try {
-        ProcessingOverlay.show(context, message: 'Decrypting previews...', isDecryption: true);
+    setState(() => _isSaving = true);
 
-        final startTime = DateTime.now();
-        for (var file in _existingFiles) {
-          final decrypted = await EncryptionService.decryptToTemp(
-            file.encryptedFilePath, 
-            file.fileExtension,
-          );
-          _decryptedPreviews[file.encryptedFilePath] = decrypted;
-        }
-
-        final elapsed = DateTime.now().difference(startTime);
-        if (elapsed < const Duration(milliseconds: 400)) {
-          await Future.delayed(const Duration(milliseconds: 400) - elapsed);
-        }
-
-        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
-        if (mounted) setState(() {});
-      } catch (e) {
-
-        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
-        debugPrint('Error loading previews: $e');
+    try {
+      for (var file in _existingFiles) {
+        final decrypted = await EncryptionService.decryptToTemp(
+          file.encryptedFilePath, 
+          file.fileExtension,
+        );
+        if (mounted) _decryptedPreviews[file.encryptedFilePath] = decrypted;
       }
-    });
+      if (mounted) setState(() => _isSaving = false);
+    } catch (e) {
+      if (mounted) setState(() => _isSaving = false);
+      debugPrint('Error loading previews: $e');
+    }
   }
 
   @override
@@ -93,7 +80,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     _nameCtrl.dispose();
     _noteCtrl.dispose();
     _tagsCtrl.dispose();
-    // Clean up temporary preview files
     for (var f in _decryptedPreviews.values) {
       f.delete().catchError((_) => f);
     }
@@ -108,16 +94,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     ref.listen(categoriesProvider, (prev, next) {
       final categories = next.valueOrNull;
       if (categories != null && categories.isNotEmpty && _categoryId == null && !_isEditing) {
-        // Safe to call setState in listen
-        setState(() {
-          _categoryId = categories.first.id;
-        });
+        setState(() => _categoryId = categories.first.id);
       }
     });
 
     final categories = categoriesAsync.valueOrNull ?? [];
-    
-    // Fallback: If categories are already available but _categoryId hasn't been set yet
     if (!_isEditing && _categoryId == null && categories.isNotEmpty) {
       _categoryId = categories.first.id;
     }
@@ -126,126 +107,111 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Document' : 'Add Document'),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // ── File picker ──────────────────────────────────────────
-            _label('Files (${_existingFiles.length + _newFiles.length}) *'),
-            const SizedBox(height: 8),
-            _multiFilePicker(scheme),
-            const SizedBox(height: 20),
-
-            // ── Name ─────────────────────────────────────────────────
-            _label('Document Name *'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(
-                  hintText: 'e.g. Identity Bundle, Medical Reports'),
-              textCapitalization: TextCapitalization.words,
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Name is required'
-                  : null,
-            ),
-            const SizedBox(height: 20),
-
-            // ── Category ─────────────────────────────────────────────
-            _label('Category'),
-            const SizedBox(height: 8),
-            categoriesAsync.when(
-              data: (cats) => _categoryGrid(scheme, cats),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (_, __) => const Text('Error loading categories'),
-            ),
-            const SizedBox(height: 20),
-
-            // ── Note ─────────────────────────────────────────────────
-            _label('Note (optional)'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _noteCtrl,
-              decoration: const InputDecoration(
-                  hintText: 'e.g. Contains multiple pages'),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 20),
-
-            // ── Tags ─────────────────────────────────────────────────
-            _label('Tags (comma separated, optional)'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _tagsCtrl,
-              decoration: const InputDecoration(
-                  hintText: 'e.g. tax, personal, multiple'),
-            ),
-            const SizedBox(height: 20),
-
-            // ── Dates ─────────────────────────────────────────────────
-            Row(
+      body: Stack(
+        children: [
+          Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _label('Issue Date'),
-                      const SizedBox(height: 8),
-                      _datePicker(
-                        value: _issueDate,
-                        hint: 'Pick date',
-                        onPicked: (d) =>
-                            setState(() => _issueDate = d),
+                _label('Files (${_existingFiles.length + _newFiles.length}) *'),
+                const SizedBox(height: 8),
+                _multiFilePicker(scheme),
+                const SizedBox(height: 20),
+
+                _label('Document Name *'),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(hintText: 'e.g. Identity Bundle'),
+                  textCapitalization: TextCapitalization.words,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                ),
+                const SizedBox(height: 20),
+
+                _label('Category'),
+                const SizedBox(height: 8),
+                categoriesAsync.when(
+                  data: (cats) => _categoryGrid(scheme, cats),
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (_, __) => const Text('Error loading categories'),
+                ),
+                const SizedBox(height: 20),
+
+                _label('Note (optional)'),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _noteCtrl,
+                  decoration: const InputDecoration(hintText: 'e.g. Contains multiple pages'),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 20),
+
+                _label('Tags (comma separated, optional)'),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _tagsCtrl,
+                  decoration: const InputDecoration(hintText: 'e.g. tax, personal'),
+                ),
+                const SizedBox(height: 20),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Issue Date'),
+                          const SizedBox(height: 8),
+                          _datePicker(
+                            value: _issueDate,
+                            hint: 'Pick date',
+                            onPicked: (d) => setState(() => _issueDate = d),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Expiry Date'),
+                          const SizedBox(height: 8),
+                          _datePicker(
+                            value: _expiryDate,
+                            hint: 'Pick date',
+                            onPicked: (d) => setState(() => _expiryDate = d),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+
+                SizedBox(
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: _isSaving ? null : _save,
+                    child: Text(
+                      _isEditing ? 'Save Changes' : 'Save Document',
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _label('Expiry Date'),
-                      const SizedBox(height: 8),
-                      _datePicker(
-                        value: _expiryDate,
-                        hint: 'Pick date',
-                        onPicked: (d) =>
-                            setState(() => _expiryDate = d),
-                      ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 40),
               ],
             ),
-            const SizedBox(height: 32),
-
-            // ── Save button ───────────────────────────────────────────
-            SizedBox(
-              height: 52,
-              child: FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : Text(
-                        _isEditing ? 'Save Changes' : 'Save Document',
-                        style: const TextStyle(fontSize: 16),
-                      ),
-              ),
+          ),
+          if (_isSaving)
+            ProcessingOverlay(
+              isDecryption: !_decryptedPreviews.isNotEmpty && _isEditing,
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
+        ],
       ),
     );
   }
-
-  // ── Widgets ───────────────────────────────────────────────────────────
 
   Widget _label(String text) => Text(
         text,
@@ -269,14 +235,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         padding: const EdgeInsets.all(12),
         itemCount: _existingFiles.length + _newFiles.length + 1,
         itemBuilder: (context, i) {
-          // Add button at the end
           if (i == _existingFiles.length + _newFiles.length) {
             return _addFileButton(scheme);
           }
-
           final bool isExisting = i < _existingFiles.length;
           final dynamic file = isExisting ? _existingFiles[i] : _newFiles[i - _existingFiles.length];
-          
           return _fileThumbnail(scheme, file, isExisting);
         },
       ),
@@ -309,7 +272,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   Widget _fileThumbnail(ColorScheme scheme, dynamic file, bool isExisting) {
     String ext = '';
     File? displayFile;
-    
     if (isExisting) {
       final df = file as DocumentFile;
       ext = df.fileExtension.toLowerCase();
@@ -319,7 +281,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
       ext = f.path.split('.').last.toLowerCase();
       displayFile = f;
     }
-
     final isImage = ['jpg', 'jpeg', 'png', 'webp'].contains(ext);
 
     return Container(
@@ -351,7 +312,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
                   )
                 : null,
           ),
-          // Remove button
           Positioned(
             top: 4,
             right: 4,
@@ -389,17 +349,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             onTap: () => setState(() => _categoryId = cat.id),
             onLongPress: () => _showCategoryOptions(cat),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: selected
-                    ? scheme.primaryContainer
-                    : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                color: selected ? scheme.primaryContainer : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: selected ? scheme.primary : Colors.transparent,
-                  width: 1.5,
-                ),
+                border: Border.all(color: selected ? scheme.primary : Colors.transparent, width: 1.5),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -410,12 +364,8 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
                     cat.name,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: selected
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: selected
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      color: selected ? scheme.primary : scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -430,25 +380,14 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: scheme.outlineVariant,
-                width: 1,
-                style: BorderStyle.solid,
-              ),
+              border: Border.all(color: scheme.outlineVariant, width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.add_rounded, size: 16, color: scheme.primary),
                 const SizedBox(width: 4),
-                Text(
-                  'New',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                Text('New', style: TextStyle(fontSize: 13, color: scheme.primary, fontWeight: FontWeight.w600)),
               ],
             ),
           ),
@@ -460,7 +399,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   void _showAddCategoryDialog({Category? editCategory}) {
     final nameCtrl = TextEditingController(text: editCategory?.name);
     final iconCtrl = TextEditingController(text: editCategory?.icon ?? '📄');
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -475,18 +413,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
               style: const TextStyle(fontSize: 24),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Category Name'),
-              textCapitalization: TextCapitalization.words,
-            ),
+            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Category Name'), textCapitalization: TextCapitalization.words),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               final name = nameCtrl.text.trim();
@@ -495,9 +426,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
                 if (editCategory == null) {
                   ref.read(categoriesProvider.notifier).addCategory(name, icon);
                 } else {
-                  ref.read(categoriesProvider.notifier).updateCategory(
-                    editCategory.copyWith(name: name, icon: icon),
-                  );
+                  ref.read(categoriesProvider.notifier).updateCategory(editCategory.copyWith(name: name, icon: icon));
                 }
                 Navigator.pop(ctx);
               }
@@ -537,6 +466,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
   }
 
   void _confirmDeleteCategory(Category category) {
+    if (category.name == 'Other') return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -556,11 +486,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     );
   }
 
-  Widget _datePicker({
-    required DateTime? value,
-    required String hint,
-    required ValueChanged<DateTime> onPicked,
-  }) {
+  Widget _datePicker({required DateTime? value, required String hint, required ValueChanged<DateTime> onPicked}) {
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: () async {
@@ -573,8 +499,7 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         if (picked != null) onPicked(picked);
       },
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           border: Border.all(color: scheme.outlineVariant),
           borderRadius: BorderRadius.circular(12),
@@ -582,19 +507,11 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         ),
         child: Row(
           children: [
-            Icon(Icons.calendar_today_rounded,
-                size: 16, color: scheme.onSurfaceVariant),
+            Icon(Icons.calendar_today_rounded, size: 16, color: scheme.onSurfaceVariant),
             const SizedBox(width: 8),
             Text(
-              value != null
-                  ? '${value.day}/${value.month}/${value.year}'
-                  : hint,
-              style: TextStyle(
-                fontSize: 13,
-                color: value != null
-                    ? scheme.onSurface
-                    : scheme.onSurfaceVariant,
-              ),
+              value != null ? '${value.day}/${value.month}/${value.year}' : hint,
+              style: TextStyle(fontSize: 13, color: value != null ? scheme.onSurface : scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -602,43 +519,18 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     );
   }
 
-  // ── Logic ─────────────────────────────────────────────────────────────
-
   void _showPickerSheet() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.upload_file_rounded),
-              title: const Text('Pick files from storage'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickFiles();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Pick images from gallery'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickPhotos();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Take a photo'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _takePhoto();
-              },
-            ),
+            ListTile(leading: const Icon(Icons.upload_file_rounded), title: const Text('Pick files'), onTap: () { Navigator.pop(ctx); _pickFiles(); }),
+            ListTile(leading: const Icon(Icons.image_outlined), title: const Text('Gallery'), onTap: () { Navigator.pop(ctx); _pickPhotos(); }),
+            ListTile(leading: const Icon(Icons.camera_alt_rounded), title: const Text('Camera'), onTap: () { Navigator.pop(ctx); _takePhoto(); }),
           ],
         ),
       ),
@@ -649,82 +541,45 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
     final status = await Permission.camera.request();
     if (!status.isGranted) return;
     final image = await ImagePicker().pickImage(source: ImageSource.camera);
-    if (image != null) {
-      setState(() {
-        _newFiles.add(File(image.path));
-      });
-    }
+    if (image != null) setState(() => _newFiles.add(File(image.path)));
   }
 
   Future<void> _pickFiles() async {
     if (Platform.isAndroid) {
-      final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt < 33) {
+      final info = await DeviceInfoPlugin().androidInfo;
+      if (info.version.sdkInt < 33) {
         final status = await Permission.storage.request();
         if (!status.isGranted) return;
       }
     }
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-      allowMultiple: true,
-    );
-    if (result != null) {
-      setState(() {
-        _newFiles.addAll(result.files.where((f) => f.path != null).map((f) => File(f.path!)));
-      });
-    }
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'], allowMultiple: true);
+    if (result != null) setState(() => _newFiles.addAll(result.files.where((f) => f.path != null).map((f) => File(f.path!))));
   }
 
   Future<void> _pickPhotos() async {
     final status = await Permission.photos.request();
     if (!status.isGranted) return;
     final images = await ImagePicker().pickMultiImage();
-    if (images.isNotEmpty) {
-      setState(() {
-        _newFiles.addAll(images.map((img) => File(img.path)));
-      });
-    }
+    if (images.isNotEmpty) setState(() => _newFiles.addAll(images.map((img) => File(img.path))));
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_existingFiles.isEmpty && _newFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one file')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add at least one file')));
       return;
     }
-
     if (_categoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a category')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a category')));
       return;
     }
 
     setState(() => _isSaving = true);
-    bool overlayShown = false;
-    
-    if (mounted) {
-      ProcessingOverlay.show(
-        context, 
-        message: _newFiles.isNotEmpty ? 'Encrypting files...' : 'Saving changes...',
-      );
-      overlayShown = true;
-    }
-
-    final startTime = DateTime.now();
 
     try {
       final db = ref.read(dbProvider);
-      final tags = _tagsCtrl.text
-          .split(',')
-          .map((t) => t.trim().toLowerCase())
-          .where((t) => t.isNotEmpty)
-          .toList();
+      final tags = _tagsCtrl.text.split(',').map((t) => t.trim().toLowerCase()).where((t) => t.isNotEmpty).toList();
 
-      // 1. Encrypt new files
       List<DocumentFile> finalFileList = List.from(_existingFiles);
       for (var f in _newFiles) {
         final encPath = await EncryptionService.encryptFile(f);
@@ -735,7 +590,6 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
         ));
       }
 
-      // 2. Delete removed files from disk
       for (var f in _filesToDelete) {
         await EncryptionService.deleteEncryptedFile(f.encryptedFilePath);
       }
@@ -751,13 +605,10 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           expiryDate: _expiryDate,
           updatedAt: DateTime.now(),
         );
-        
         await NotificationService.cancelReminder(updated.id!);
         await db.updateDocument(updated);
-        
-        if (_expiryDate != null) {
-          final hasPerm = await NotificationService.hasPermission();
-          if (hasPerm) await NotificationService.scheduleExpiryReminder(updated);
+        if (_expiryDate != null && await NotificationService.hasPermission()) {
+          await NotificationService.scheduleExpiryReminder(updated);
         }
       } else {
         final now = DateTime.now();
@@ -773,32 +624,13 @@ class _AddDocumentScreenState extends ConsumerState<AddDocumentScreen> {
           updatedAt: now,
         );
         final id = await db.addDocument(doc);
-        if (_expiryDate != null) {
-          final hasPerm = await NotificationService.hasPermission();
-          if (hasPerm) await NotificationService.scheduleExpiryReminder(doc.copyWith(id: id));
+        if (_expiryDate != null && await NotificationService.hasPermission()) {
+          await NotificationService.scheduleExpiryReminder(doc.copyWith(id: id));
         }
       }
-
-      final elapsed = DateTime.now().difference(startTime);
-      if (elapsed < const Duration(milliseconds: 400)) {
-        await Future.delayed(const Duration(milliseconds: 400) - elapsed);
-      }
-
-      if (mounted) {
-        if (overlayShown && Navigator.canPop(context)) {
-          Navigator.pop(context);
-          overlayShown = false;
-        }
-        Navigator.pop(context);
-      }
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) {
-        if (overlayShown && Navigator.canPop(context)) {
-          Navigator.pop(context);
-          overlayShown = false;
-        }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

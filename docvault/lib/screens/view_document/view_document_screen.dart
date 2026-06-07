@@ -45,42 +45,27 @@ class _ViewDocumentScreenState extends ConsumerState<ViewDocumentScreen> {
       _error = null;
     });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      
+    try {
       final file = widget.document.files[_currentIndex];
-      ProcessingOverlay.show(context, message: 'Decrypting...', isDecryption: true);
+      final f = await EncryptionService.decryptToTemp(
+        file.encryptedFilePath,
+        file.fileExtension,
+      );
       
-      final startTime = DateTime.now();
-      
-      try {
-        final f = await EncryptionService.decryptToTemp(
-          file.encryptedFilePath,
-          file.fileExtension,
-        );
-        
-        final elapsed = DateTime.now().difference(startTime);
-        if (elapsed < const Duration(milliseconds: 400)) {
-          await Future.delayed(const Duration(milliseconds: 400) - elapsed);
-        }
-
-        if (mounted) {
-          if (Navigator.canPop(context)) Navigator.pop(context);
-          setState(() {
-            _decryptedFiles[_currentIndex] = f;
-            _loading = false;
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          if (Navigator.canPop(context)) Navigator.pop(context);
-          setState(() {
-            _error = e.toString();
-            _loading = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _decryptedFiles[_currentIndex] = f;
+          _loading = false;
+        });
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -138,64 +123,64 @@ class _ViewDocumentScreenState extends ConsumerState<ViewDocumentScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // ── Metadata card ────────────────────────────────────────────
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Text(category.icon,
-                    style: const TextStyle(fontSize: 24)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category.name,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 6,
+          Column(
+            children: [
+              // ── Metadata card ────────────────────────────────────────────
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Text(category.icon,
+                        style: const TextStyle(fontSize: 24)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (doc.issueDate != null)
-                            _chip(
-                                'Issued: ${AppUtils.formatDate(doc.issueDate)}',
-                                false),
-                          if (doc.expiryDate != null)
-                            _chip(
-                              AppUtils.daysUntilExpiry(doc.expiryDate!),
-                              AppUtils.isExpiringSoon(doc.expiryDate) ||
-                                  AppUtils.isExpired(doc.expiryDate),
+                          Text(
+                            category.name,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w600,
                             ),
-                          _chip(
-                              AppUtils.formatFileSize(doc.files[_currentIndex].fileSizeBytes),
-                              false),
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            children: [
+                              if (doc.issueDate != null)
+                                _chip(
+                                    'Issued: ${AppUtils.formatDate(doc.issueDate)}',
+                                    false),
+                              if (doc.expiryDate != null)
+                                _chip(
+                                  AppUtils.daysUntilExpiry(doc.expiryDate!),
+                                  AppUtils.isExpiringSoon(doc.expiryDate) ||
+                                      AppUtils.isExpired(doc.expiryDate),
+                                ),
+                              _chip(
+                                  AppUtils.formatFileSize(doc.files[_currentIndex].fileSizeBytes),
+                                  false),
+                            ],
+                          ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
 
-          // ── File viewer ──────────────────────────────────────────────
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
+              // ── File viewer ──────────────────────────────────────────────
+              Expanded(
+                child: _error != null
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
@@ -204,10 +189,15 @@ class _ViewDocumentScreenState extends ConsumerState<ViewDocumentScreen> {
                         ),
                       )
                     : _buildViewer(doc.files[_currentIndex]),
-          ),
+              ),
 
-          // ── Thumbnail Strip ──────────────────────────────────────────
-          if (doc.files.length > 1) _buildThumbnailStrip(doc),
+              // ── Thumbnail Strip ──────────────────────────────────────────
+              if (doc.files.length > 1) _buildThumbnailStrip(doc),
+            ],
+          ),
+          // ── Overlay Loading ──────────────────────────────────────────
+          if (_loading)
+            const ProcessingOverlay(isDecryption: true),
         ],
       ),
     );

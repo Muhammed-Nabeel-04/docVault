@@ -99,14 +99,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ListTile(
             leading: Icon(Icons.lock_rounded, color: scheme.primary),
             title: const Text('All files encrypted'),
-            subtitle:
-                const Text('AES-256 · stored on device only · no cloud'),
-            trailing: Icon(Icons.check_circle_rounded,
-                color: scheme.primary),
+            subtitle: const Text('AES-256 · stored on device only · no cloud'),
+            trailing: Icon(Icons.check_circle_rounded, color: scheme.primary),
           ),
           ListTile(
-            leading: const Icon(Icons.delete_outline_rounded,
-                color: Colors.red),
+            leading:
+                const Icon(Icons.delete_outline_rounded, color: Colors.red),
             title: const Text('Clear all documents',
                 style: TextStyle(color: Colors.red)),
             subtitle: const Text('Permanently delete everything'),
@@ -282,7 +280,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // Try biometrics first if enabled
         verified = await AuthService.authenticateWithBiometrics();
       }
-      
+
       if (!verified) {
         // Fallback to PIN if bio fails or is disabled
         if (!mounted) return;
@@ -408,12 +406,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Solve this simple math problem to confirm you are human:'),
+            const Text(
+                'Solve this simple math problem to confirm you are human:'),
             const SizedBox(height: 20),
             Center(
               child: Text(
                 '$a + $b = ?',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 2),
+                style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2),
               ),
             ),
             const SizedBox(height: 20),
@@ -437,11 +439,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Navigator.pop(ctx, true);
               } else {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Incorrect answer. Please try again.')),
+                  const SnackBar(
+                      content: Text('Incorrect answer. Please try again.')),
                 );
               }
             },
-            child: const Text('Verify & Delete All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            child: const Text('Verify & Delete All',
+                style:
+                    TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -483,7 +488,8 @@ class _CategoryManagerSheet extends ConsumerWidget {
                   children: [
                     const Text(
                       'Manage Categories',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       'Drag ⠿ to reorder',
@@ -504,7 +510,8 @@ class _CategoryManagerSheet extends ConsumerWidget {
             child: categoriesAsync.when(
               data: (categories) => ReorderableListView.builder(
                 scrollController: scrollController,
-                physics: const ClampingScrollPhysics(), // Fixes conflict with DraggableScrollableSheet
+                physics:
+                    const ClampingScrollPhysics(), // Fixes conflict with DraggableScrollableSheet
                 itemCount: categories.length,
                 padding: const EdgeInsets.only(bottom: 40),
                 onReorder: (oldIndex, newIndex) {
@@ -516,33 +523,41 @@ class _CategoryManagerSheet extends ConsumerWidget {
                 },
                 itemBuilder: (ctx, i) {
                   final cat = categories[i];
-                  return ReorderableDragStartListener(
+                  return ReorderableDelayedDragStartListener(
                     key: ValueKey(cat.id),
                     index: i,
                     child: ListTile(
                       leading: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.drag_indicator_rounded, color: Colors.grey),
+                          const Icon(Icons.drag_indicator_rounded,
+                              color: Colors.grey),
                           const SizedBox(width: 8),
                           CircleAvatar(
-                            backgroundColor: scheme.primaryContainer.withValues(alpha: 0.5),
-                            child: Text(cat.icon, style: const TextStyle(fontSize: 18)),
+                            backgroundColor:
+                                scheme.primaryContainer.withValues(alpha: 0.5),
+                            child: Text(cat.icon,
+                                style: const TextStyle(fontSize: 18)),
                           ),
                         ],
                       ),
-                      title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      title: Text(cat.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
                             icon: const Icon(Icons.edit_outlined, size: 20),
-                            onPressed: () => _showAddCategoryDialog(context, ref, editCategory: cat),
+                            onPressed: () => _showAddCategoryDialog(
+                                context, ref,
+                                editCategory: cat),
                           ),
                           if (cat.name != 'Other')
                             IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
-                              onPressed: () => _confirmDeleteCategory(context, ref, cat, categories.length),
+                              icon: const Icon(Icons.delete_outline_rounded,
+                                  size: 20, color: Colors.red),
+                              onPressed: () => _confirmDeleteCategory(
+                                  context, ref, cat, categories.length),
                             ),
                         ],
                       ),
@@ -559,7 +574,8 @@ class _CategoryManagerSheet extends ConsumerWidget {
     );
   }
 
-  void _showAddCategoryDialog(BuildContext context, WidgetRef ref, {Category? editCategory}) {
+  void _showAddCategoryDialog(BuildContext context, WidgetRef ref,
+      {Category? editCategory}) {
     final nameCtrl = TextEditingController(text: editCategory?.name);
     final iconCtrl = TextEditingController(text: editCategory?.icon ?? '📄');
 
@@ -578,7 +594,8 @@ class _CategoryManagerSheet extends ConsumerWidget {
               ),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 24),
-              maxLength: 2, // Emojis can be multiple chars but usually 1-2 graphemes
+              maxLength:
+                  2, // Emojis can be multiple chars but usually 1-2 graphemes
             ),
             const SizedBox(height: 12),
             TextField(
@@ -589,12 +606,13 @@ class _CategoryManagerSheet extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               final name = nameCtrl.text.trim();
               final iconText = iconCtrl.text.trim();
-              
+
               if (name.isEmpty) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   const SnackBar(content: Text('Please enter a name')),
@@ -604,13 +622,16 @@ class _CategoryManagerSheet extends ConsumerWidget {
 
               if (iconText.characters.length != 1) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Please enter exactly one emoji')),
+                  const SnackBar(
+                      content: Text('Please enter exactly one emoji')),
                 );
                 return;
               }
 
               if (editCategory == null) {
-                ref.read(categoriesProvider.notifier).addCategory(name, iconText);
+                ref
+                    .read(categoriesProvider.notifier)
+                    .addCategory(name, iconText);
               } else {
                 ref.read(categoriesProvider.notifier).updateCategory(
                       editCategory.copyWith(name: name, icon: iconText),
@@ -625,7 +646,9 @@ class _CategoryManagerSheet extends ConsumerWidget {
     );
   }
 
-  void _confirmDeleteCategory(BuildContext context, WidgetRef ref, Category category, int count) {
+  void _confirmDeleteCategory(
+      BuildContext context, WidgetRef ref, Category category, int count) {
+    if (category.name == 'Other') return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -634,22 +657,27 @@ class _CategoryManagerSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Documents in "${category.name}" will be moved to "Other" or become uncategorized.'),
+            Text(
+                'Documents in "${category.name}" will be moved to "Other" or become uncategorized.'),
             if (count <= 1)
               const Padding(
                 padding: EdgeInsets.only(top: 8.0),
                 child: Text(
                   'Warning: This is your last category.',
-                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                 ),
               ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              ref.read(categoriesProvider.notifier).deleteCategory(category.id!);
+              ref
+                  .read(categoriesProvider.notifier)
+                  .deleteCategory(category.id!);
               Navigator.pop(ctx);
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
